@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════
---  🎬 NOVA CINEMATIC ULTRA v4.0
+--  🎬 NOVA CINEMATIC ULTRA v4.1 (FIXED)
 --  Radial Motion Blur | Time of Day | Weather | Master Toggle
 -- ═══════════════════════════════════════════════════════════
 
@@ -21,6 +21,35 @@ for _, n in ipairs({"NovaBlur","NovaBloom","NovaColor","NovaDOF","NovaSunRays","
 end
 local ws = workspace:FindFirstChild("NovaWeatherFolder")
 if ws then ws:Destroy() end
+
+-- ═══ COLORS ═══
+local C = {
+    bg         = Color3.fromRGB(6, 6, 12),
+    bg2        = Color3.fromRGB(12, 12, 20),
+    card       = Color3.fromRGB(18, 18, 30),
+    cardLight  = Color3.fromRGB(26, 26, 42),
+    cardHover  = Color3.fromRGB(34, 34, 54),
+    accent     = Color3.fromRGB(255, 85, 100),
+    accent2    = Color3.fromRGB(255, 160, 80),
+    accent3    = Color3.fromRGB(255, 60, 150),
+    purple     = Color3.fromRGB(150, 80, 255),
+    cyan       = Color3.fromRGB(70, 220, 255),
+    green      = Color3.fromRGB(70, 240, 150),
+    yellow     = Color3.fromRGB(255, 220, 80),
+    red        = Color3.fromRGB(255, 70, 90),
+    text       = Color3.fromRGB(245, 245, 255),
+    subtext    = Color3.fromRGB(180, 180, 210),
+    muted      = Color3.fromRGB(110, 110, 145),
+    border     = Color3.fromRGB(45, 45, 70),
+    toggleOff  = Color3.fromRGB(45, 45, 65),
+    toggleOn   = Color3.fromRGB(255, 85, 100),
+}
+
+-- ═══ HELPERS ═══
+local function corner(p,r) local c=Instance.new("UICorner") c.CornerRadius=UDim.new(0,r or 10) c.Parent=p return c end
+local function stroke(p,col,t,tr) local s=Instance.new("UIStroke") s.Color=col or C.border s.Thickness=t or 1 s.Transparency=tr or 0.5 s.Parent=p return s end
+local function grad(p,seq,rot) local g=Instance.new("UIGradient") g.Color=seq g.Rotation=rot or 90 g.Parent=p return g end
+local function tween(o,p,d,s,dir) return TS:Create(o,TweenInfo.new(d or 0.25,s or Enum.EasingStyle.Quint,dir or Enum.EasingDirection.Out),p):Play() end
 
 -- ═══════════════════════════════════════════════════════════
 --  LIGHTING EFFECTS
@@ -56,14 +85,13 @@ Atmosphere.Decay = Color3.fromRGB(106, 112, 125); Atmosphere.Parent = Lighting
 local motionBlurEnabled = false
 local motionBlurStrength = 0.5
 local motionBlurQuality = 8
-local radialBlurEnabled = true -- ★ NEW: radial effect on/off
-local radialFocusSize = 0.3 -- ★ NEW: size of sharp center (0-1)
+local radialBlurEnabled = true
+local radialFocusSize = 0.3
 local currentWeather = "None"
 local weatherFolder = nil
 
 -- ═══════════════════════════════════════════════════════════
---  ★★★ RADIAL MOTION BLUR SYSTEM ★★★
---  Creates blur only around edges, center stays sharp
+--  RADIAL MOTION BLUR SYSTEM
 -- ═══════════════════════════════════════════════════════════
 
 local RadialGui = Instance.new("ScreenGui")
@@ -73,14 +101,13 @@ RadialGui.IgnoreGuiInset = true
 RadialGui.DisplayOrder = -10
 RadialGui.Parent = CoreGui
 
--- Multiple radial blur rings for depth effect
 local radialRings = {}
 for i = 1, 6 do
     local ring = Instance.new("ImageLabel")
     ring.Size = UDim2.new(1.2, 0, 1.2, 0)
     ring.Position = UDim2.new(-0.1, 0, -0.1, 0)
     ring.BackgroundTransparency = 1
-    ring.Image = "rbxassetid://11295263412" -- vignette texture (dark edges)
+    ring.Image = "rbxassetid://11295263412"
     ring.ImageColor3 = Color3.new(0, 0, 0)
     ring.ImageTransparency = 1
     ring.ScaleType = Enum.ScaleType.Stretch
@@ -88,7 +115,6 @@ for i = 1, 6 do
     table.insert(radialRings, ring)
 end
 
--- Motion streaks (directional blur lines)
 local streaksHolder = Instance.new("Frame")
 streaksHolder.Size = UDim2.new(1, 0, 1, 0)
 streaksHolder.BackgroundTransparency = 1
@@ -119,7 +145,6 @@ local movementDirection = Vector2.new(0, 0)
 
 RS.RenderStepped:Connect(function(dt)
     if not motionBlurEnabled then
-        -- Smooth fadeout
         MotionBlur.Size = MotionBlur.Size * 0.85
         if MotionBlur.Size < 0.1 then MotionBlur.Size = 0 end
         for _, ring in ipairs(radialRings) do
@@ -135,7 +160,6 @@ RS.RenderStepped:Connect(function(dt)
     if not cam then return end
     local cur = cam.CFrame
     
-    -- Store history
     table.insert(cameraHistory, 1, {cframe = cur, time = tick()})
     while #cameraHistory > motionBlurQuality do
         table.remove(cameraHistory)
@@ -143,7 +167,6 @@ RS.RenderStepped:Connect(function(dt)
     
     if #cameraHistory < 2 then return end
     
-    -- Calculate weighted velocity
     local totalVel = 0
     local totalRot = 0
     local weightSum = 0
@@ -162,9 +185,9 @@ RS.RenderStepped:Connect(function(dt)
             totalRot = totalRot + rotDelta * weight
             weightSum = weightSum + weight
             
-            -- Get 2D screen-space direction of movement
-            local moveDir = (a.cframe.Position - b.cframe.Position).Unit
+            local moveDir = (a.cframe.Position - b.cframe.Position)
             if moveDir.Magnitude > 0.01 then
+                moveDir = moveDir.Unit
                 local rightDot = cur.RightVector:Dot(moveDir)
                 local upDot = cur.UpVector:Dot(moveDir)
                 dirSum = dirSum + Vector2.new(rightDot, -upDot) * weight
@@ -178,7 +201,6 @@ RS.RenderStepped:Connect(function(dt)
         dirSum = dirSum / weightSum
     end
     
-    -- Smooth
     velocitySmoothed = velocitySmoothed + (totalVel - velocitySmoothed) * 0.3
     rotationSmoothed = rotationSmoothed + (totalRot - rotationSmoothed) * 0.3
     movementDirection = movementDirection:Lerp(dirSum, 0.3)
@@ -187,23 +209,18 @@ RS.RenderStepped:Connect(function(dt)
     local intensity = math.clamp(combined / 30, 0, 1)
     
     if radialBlurEnabled then
-        -- ★ RADIAL MODE ★
-        -- Center stays sharp, edges blur based on speed
         MotionBlur.Size = MotionBlur.Size + (math.clamp(combined, 0, 20) - MotionBlur.Size) * 0.5
         
-        -- Update radial rings (darker as speed increases → creates blur illusion)
         for i, ring in ipairs(radialRings) do
             local ringSpeed = i / #radialRings
             local targetTrans = 1 - (intensity * 0.4 * ringSpeed * (1 - radialFocusSize))
             ring.ImageTransparency = ring.ImageTransparency + (targetTrans - ring.ImageTransparency) * 0.3
             
-            -- Slight rotation/scale for dynamic feel
             local scale = 1.2 + intensity * ringSpeed * 0.15
             ring.Size = UDim2.new(scale, 0, scale, 0)
             ring.Position = UDim2.new((1 - scale) / 2, 0, (1 - scale) / 2, 0)
         end
         
-        -- Motion streaks (only visible when moving fast)
         if intensity > 0.15 then
             for i, streak in ipairs(streaks) do
                 local angle = (i / #streaks) * math.pi * 2
@@ -223,7 +240,6 @@ RS.RenderStepped:Connect(function(dt)
             end
         end
     else
-        -- ★ CLASSIC MODE (full-screen blur) ★
         local targetBlur = math.clamp(combined, 0, 32)
         MotionBlur.Size = MotionBlur.Size + (targetBlur - MotionBlur.Size) * 0.5
         for _, ring in ipairs(radialRings) do
@@ -234,40 +250,6 @@ RS.RenderStepped:Connect(function(dt)
         end
     end
 end)
-
--- ═══ COLORS ═══
-local C = {
-    bg         = Color3.fromRGB(6, 6, 12),
-    bg2        = Color3.fromRGB(12, 12, 20),
-    card       = Color3.fromRGB(18, 18, 30),
-    cardLight  = Color3.fromRGB(26, 26, 42),
-    cardHover  = Color3.fromRGB(34, 34, 54),
-    accent     = Color3.fromRGB(255, 85, 100),
-    accent2    = Color3.fromRGB(255, 160, 80),
-    accent3    = Color3.fromRGB(255, 60, 150),
-    purple     = Color3.fromRGB(150, 80, 255),
-    cyan       = Color3.fromRGB(70, 220, 255),
-    green      = Color3.fromRGB(70, 240, 150),
-    yellow     = Color3.fromRGB(255, 220, 80),
-    red        = Color3.fromRGB(255, 70, 90),
-    text       = Color3.fromRGB(245, 245, 255),
-    subtext    = Color3.fromRGB(180, 180, 210),
-    muted      = Color3.fromRGB(110, 110, 145),
-    border     = Color3.fromRGB(45, 45, 70),
-    toggleOff  = Color3.fromRGB(45, 45, 65),
-    toggleOn   = Color3.fromRGB(255, 85, 100),
-}
-
--- ═══ HELPERS ═══
-function corner(p,r) local c=Instance.new("UICorner") c.CornerRadius=UDim.new(0,r or 10) c.Parent=p return c end
-local function stroke(p,col,t,tr) local s=Instance.new("UIStroke") s.Color=col or C.border s.Thickness=t or 1 s.Transparency=tr or 0.5 s.Parent=p return s end
-local function grad(p,seq,rot) local g=Instance.new("UIGradient") g.Color=seq g.Rotation=rot or 90 g.Parent=p return g end
-local function tween(o,p,d,s,dir) return TS:Create(o,TweenInfo.new(d or 0.25,s or Enum.EasingStyle.Quint,dir or Enum.EasingDirection.Out),p):Play() end
-
--- Re-corner streaks now that corner is defined
-for _, streak in ipairs(streaks) do
-    corner(streak, 1)
-end
 
 -- ═══════════════════════════════════════════════════════════
 --  MAIN GUI
@@ -280,10 +262,7 @@ Gui.IgnoreGuiInset = true
 Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 Gui.Parent = CoreGui
 
--- ═══════════════════════════════════════════════════════════
---  OVERLAY EFFECTS
--- ═══════════════════════════════════════════════════════════
-
+-- ═══ OVERLAY EFFECTS ═══
 local OverlayGui = Instance.new("ScreenGui")
 OverlayGui.Name = "NovaOverlaysU"
 OverlayGui.ResetOnSpawn = false
@@ -357,7 +336,6 @@ FilmBurn.ImageColor3 = Color3.fromRGB(255, 140, 60)
 FilmBurn.ImageTransparency = 1
 FilmBurn.Parent = OverlayGui
 
--- Grain animation
 task.spawn(function()
     while OverlayGui.Parent do
         FilmGrain.Position = UDim2.new(0, math.random(-50, 50), 0, math.random(-50, 50))
@@ -373,10 +351,7 @@ task.spawn(function()
     end
 end)
 
--- ═══════════════════════════════════════════════════════════
---  WINDOW
--- ═══════════════════════════════════════════════════════════
-
+-- ═══ WINDOW ═══
 local Holder = Instance.new("Frame")
 Holder.Size = UDim2.new(0, 540, 0, 620)
 Holder.Position = UDim2.new(0.5, -270, 0.5, -310)
@@ -428,7 +403,6 @@ grad(Main, ColorSequence.new{
     ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 12, 26))
 }, 135)
 
--- Inner stars
 local starHolder = Instance.new("Frame")
 starHolder.Size = UDim2.new(1, 0, 1, 0)
 starHolder.BackgroundTransparency = 1
@@ -543,14 +517,13 @@ local subText = Instance.new("TextLabel")
 subText.Size = UDim2.new(0, 300, 0, 16)
 subText.Position = UDim2.new(0, 72, 0, 38)
 subText.BackgroundTransparency = 1
-subText.Text = "★ ULTRA v4.0 • RADIAL BLUR"
+subText.Text = "★ ULTRA v4.1 • RADIAL BLUR"
 subText.TextColor3 = C.subtext
 subText.Font = Enum.Font.GothamSemibold
 subText.TextSize = 10
 subText.TextXAlignment = Enum.TextXAlignment.Left
 subText.Parent = titleBar
 
--- FPS
 local fpsBox = Instance.new("Frame")
 fpsBox.Size = UDim2.new(0, 60, 0, 30); fpsBox.Position = UDim2.new(1, -258, 0.5, -15)
 fpsBox.BackgroundColor3 = C.cardLight; fpsBox.BorderSizePixel = 0; fpsBox.Parent = titleBar
@@ -581,7 +554,7 @@ task.spawn(function()
     end
 end)
 
--- ═══ MASTER TOGGLE BUTTON ═══
+-- ═══ MASTER POWER BUTTON ═══
 local shadersEnabled = true
 local savedState = {}
 
@@ -673,7 +646,6 @@ powerBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Close/Min
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 34, 0, 34); closeBtn.Position = UDim2.new(1, -46, 0.5, -17)
 closeBtn.BackgroundColor3 = C.red; closeBtn.Text = "✕"; closeBtn.TextColor3 = Color3.new(1,1,1)
@@ -1395,7 +1367,7 @@ corner(infoBox, 10); stroke(infoBox, C.accent, 1, 0.4)
 local infoText = Instance.new("TextLabel")
 infoText.Size = UDim2.new(1, -20, 1, -20); infoText.Position = UDim2.new(0, 10, 0, 10)
 infoText.BackgroundTransparency = 1
-infoText.Text = "🎬 NOVA CINEMATIC ULTRA v4.0\n\n★ NEW: Radial Motion Blur (Racing style!)\n★ Sharp center, blurred edges\n★ 22 built-in cinematic presets\n★ Time of day control (0-24h)\n★ Weather system (rain/snow/sand)\n★ Full HSV color picker\n★ Master ⏻ power button\n\n🎮 CONTROLS:\n★ ]  → Toggle UI\n★ ⏻  → Disable all shaders\n★ Drag title bar to move\n\n💡 TIP: Try the 'Racing' preset with radial blur enabled — feels like driving a real car!\n\nMade with ❤️ by Nova"
+infoText.Text = "🎬 NOVA CINEMATIC ULTRA v4.1\n\n★ NEW: Radial Motion Blur (Racing style!)\n★ Sharp center, blurred edges\n★ 22 built-in cinematic presets\n★ Time of day control (0-24h)\n★ Weather system (rain/snow/sand)\n★ Full HSV color picker\n★ Master ⏻ power button\n\n🎮 CONTROLS:\n★ ]  → Toggle UI\n★ ⏻  → Disable all shaders\n★ Drag title bar to move\n\n💡 TIP: Try the 'Racing' preset with radial blur enabled — feels like driving a real car!\n\nMade with ❤️ by Nova"
 infoText.TextColor3 = C.text; infoText.Font = Enum.Font.Gotham
 infoText.TextSize = 12; infoText.TextXAlignment = Enum.TextXAlignment.Left
 infoText.TextYAlignment = Enum.TextYAlignment.Top; infoText.TextWrapped = true
@@ -1416,7 +1388,7 @@ Holder.Position = UDim2.new(0.5, -270, -1.5, 0)
 tween(Holder, {Position = UDim2.new(0.5, -270, 0.5, -310)}, 0.8, Enum.EasingStyle.Back)
 
 print("═══════════════════════════════════════")
-print("  🎬 NOVA CINEMATIC ULTRA v4.0")
+print("  🎬 NOVA CINEMATIC ULTRA v4.1 (FIXED)")
 print("  🏎 Radial Motion Blur (Center Sharp)")
 print("  ⏻ Master Power Button in title")
 print("  Press ] to toggle UI")
