@@ -1,6 +1,6 @@
 -- ═══════════════════════════════════════════════════════════
---  🎬 NOVA CINEMATIC ULTRA v3.0
---  Motion Blur Pro | Time of Day | Weather | Lens Flare
+--  🎬 NOVA CINEMATIC ULTRA v4.0
+--  Radial Motion Blur | Time of Day | Weather | Master Toggle
 -- ═══════════════════════════════════════════════════════════
 
 local Lighting = game:GetService("Lighting")
@@ -13,7 +13,7 @@ local Players = game:GetService("Players")
 local plr = Players.LocalPlayer
 
 -- ═══ CLEANUP ═══
-for _, n in ipairs({"NovaCinematicUltra","NovaOverlaysU","NovaWeather"}) do
+for _, n in ipairs({"NovaCinematicUltra","NovaOverlaysU","NovaRadialBlur"}) do
     local ex = CoreGui:FindFirstChild(n) if ex then ex:Destroy() end
 end
 for _, n in ipairs({"NovaBlur","NovaBloom","NovaColor","NovaDOF","NovaSunRays","NovaAtmosphere","NovaMotionBlur"}) do
@@ -55,23 +55,79 @@ Atmosphere.Decay = Color3.fromRGB(106, 112, 125); Atmosphere.Parent = Lighting
 -- ═══ STATE ═══
 local motionBlurEnabled = false
 local motionBlurStrength = 0.5
-local motionBlurQuality = 8 -- accumulation samples
-local timeOfDayLocked = false
+local motionBlurQuality = 8
+local radialBlurEnabled = true -- ★ NEW: radial effect on/off
+local radialFocusSize = 0.3 -- ★ NEW: size of sharp center (0-1)
 local currentWeather = "None"
 local weatherFolder = nil
 
 -- ═══════════════════════════════════════════════════════════
---  ★★★ BEAUTIFUL MOTION BLUR SYSTEM ★★★
+--  ★★★ RADIAL MOTION BLUR SYSTEM ★★★
+--  Creates blur only around edges, center stays sharp
 -- ═══════════════════════════════════════════════════════════
 
-local cameraHistory = {} -- stores previous camera CFrames
+local RadialGui = Instance.new("ScreenGui")
+RadialGui.Name = "NovaRadialBlur"
+RadialGui.ResetOnSpawn = false
+RadialGui.IgnoreGuiInset = true
+RadialGui.DisplayOrder = -10
+RadialGui.Parent = CoreGui
+
+-- Multiple radial blur rings for depth effect
+local radialRings = {}
+for i = 1, 6 do
+    local ring = Instance.new("ImageLabel")
+    ring.Size = UDim2.new(1.2, 0, 1.2, 0)
+    ring.Position = UDim2.new(-0.1, 0, -0.1, 0)
+    ring.BackgroundTransparency = 1
+    ring.Image = "rbxassetid://11295263412" -- vignette texture (dark edges)
+    ring.ImageColor3 = Color3.new(0, 0, 0)
+    ring.ImageTransparency = 1
+    ring.ScaleType = Enum.ScaleType.Stretch
+    ring.Parent = RadialGui
+    table.insert(radialRings, ring)
+end
+
+-- Motion streaks (directional blur lines)
+local streaksHolder = Instance.new("Frame")
+streaksHolder.Size = UDim2.new(1, 0, 1, 0)
+streaksHolder.BackgroundTransparency = 1
+streaksHolder.ClipsDescendants = true
+streaksHolder.Parent = RadialGui
+
+local streaks = {}
+for i = 1, 20 do
+    local streak = Instance.new("Frame")
+    streak.Size = UDim2.new(0, 0, 0, 1)
+    streak.BackgroundColor3 = Color3.new(1, 1, 1)
+    streak.BackgroundTransparency = 1
+    streak.BorderSizePixel = 0
+    streak.AnchorPoint = Vector2.new(0.5, 0.5)
+    streak.Parent = streaksHolder
+    corner(streak, 1)
+    table.insert(streaks, streak)
+end
+
+-- ═══════════════════════════════════════════════════════════
+--  MOTION BLUR ENGINE
+-- ═══════════════════════════════════════════════════════════
+
+local cameraHistory = {}
 local velocitySmoothed = 0
 local rotationSmoothed = 0
+local movementDirection = Vector2.new(0, 0)
 
 RS.RenderStepped:Connect(function(dt)
     if not motionBlurEnabled then
-        MotionBlur.Size = MotionBlur.Size * 0.85 -- smooth fadeout
+        -- Smooth fadeout
+        MotionBlur.Size = MotionBlur.Size * 0.85
         if MotionBlur.Size < 0.1 then MotionBlur.Size = 0 end
+        for _, ring in ipairs(radialRings) do
+            ring.ImageTransparency = math.min(ring.ImageTransparency + 0.05, 1)
+        end
+        for _, streak in ipairs(streaks) do
+            streak.BackgroundTransparency = math.min(streak.BackgroundTransparency + 0.05, 1)
+        end
         return
     end
     
@@ -79,7 +135,7 @@ RS.RenderStepped:Connect(function(dt)
     if not cam then return end
     local cur = cam.CFrame
     
-    -- Store camera history
+    -- Store history
     table.insert(cameraHistory, 1, {cframe = cur, time = tick()})
     while #cameraHistory > motionBlurQuality do
         table.remove(cameraHistory)
@@ -87,10 +143,11 @@ RS.RenderStepped:Connect(function(dt)
     
     if #cameraHistory < 2 then return end
     
-    -- Calculate weighted velocity over multiple frames
-    local totalVelocity = 0
-    local totalRotation = 0
+    -- Calculate weighted velocity
+    local totalVel = 0
+    local totalRot = 0
     local weightSum = 0
+    local dirSum = Vector2.new(0, 0)
     
     for i = 1, #cameraHistory - 1 do
         local weight = 1 / i
@@ -101,27 +158,81 @@ RS.RenderStepped:Connect(function(dt)
             local posDelta = (a.cframe.Position - b.cframe.Position).Magnitude / timeDelta
             local lookDot = a.cframe.LookVector:Dot(b.cframe.LookVector)
             local rotDelta = math.acos(math.clamp(lookDot, -1, 1)) / timeDelta * 30
-            totalVelocity = totalVelocity + posDelta * weight
-            totalRotation = totalRotation + rotDelta * weight
+            totalVel = totalVel + posDelta * weight
+            totalRot = totalRot + rotDelta * weight
             weightSum = weightSum + weight
+            
+            -- Get 2D screen-space direction of movement
+            local moveDir = (a.cframe.Position - b.cframe.Position).Unit
+            if moveDir.Magnitude > 0.01 then
+                local rightDot = cur.RightVector:Dot(moveDir)
+                local upDot = cur.UpVector:Dot(moveDir)
+                dirSum = dirSum + Vector2.new(rightDot, -upDot) * weight
+            end
         end
     end
     
     if weightSum > 0 then
-        totalVelocity = totalVelocity / weightSum
-        totalRotation = totalRotation / weightSum
+        totalVel = totalVel / weightSum
+        totalRot = totalRot / weightSum
+        dirSum = dirSum / weightSum
     end
     
-    -- Smooth interpolation for buttery motion
-    velocitySmoothed = velocitySmoothed + (totalVelocity - velocitySmoothed) * 0.3
-    rotationSmoothed = rotationSmoothed + (totalRotation - rotationSmoothed) * 0.3
+    -- Smooth
+    velocitySmoothed = velocitySmoothed + (totalVel - velocitySmoothed) * 0.3
+    rotationSmoothed = rotationSmoothed + (totalRot - rotationSmoothed) * 0.3
+    movementDirection = movementDirection:Lerp(dirSum, 0.3)
     
-    -- Combined intensity (movement + rotation)
     local combined = (velocitySmoothed * 0.4 + rotationSmoothed * 0.6) * motionBlurStrength
-    local targetBlur = math.clamp(combined, 0, 32)
+    local intensity = math.clamp(combined / 30, 0, 1)
     
-    -- Extra smooth blur transition
-    MotionBlur.Size = MotionBlur.Size + (targetBlur - MotionBlur.Size) * 0.5
+    if radialBlurEnabled then
+        -- ★ RADIAL MODE ★
+        -- Center stays sharp, edges blur based on speed
+        MotionBlur.Size = MotionBlur.Size + (math.clamp(combined, 0, 20) - MotionBlur.Size) * 0.5
+        
+        -- Update radial rings (darker as speed increases → creates blur illusion)
+        for i, ring in ipairs(radialRings) do
+            local ringSpeed = i / #radialRings
+            local targetTrans = 1 - (intensity * 0.4 * ringSpeed * (1 - radialFocusSize))
+            ring.ImageTransparency = ring.ImageTransparency + (targetTrans - ring.ImageTransparency) * 0.3
+            
+            -- Slight rotation/scale for dynamic feel
+            local scale = 1.2 + intensity * ringSpeed * 0.15
+            ring.Size = UDim2.new(scale, 0, scale, 0)
+            ring.Position = UDim2.new((1 - scale) / 2, 0, (1 - scale) / 2, 0)
+        end
+        
+        -- Motion streaks (only visible when moving fast)
+        if intensity > 0.15 then
+            for i, streak in ipairs(streaks) do
+                local angle = (i / #streaks) * math.pi * 2
+                local dist = math.random(200, 500)
+                local centerX = 0.5 + math.cos(angle) * 0.35
+                local centerY = 0.5 + math.sin(angle) * 0.35
+                
+                streak.Position = UDim2.new(centerX, 0, centerY, 0)
+                streak.Size = UDim2.new(0, intensity * dist * 0.3, 0, 1 + intensity * 2)
+                streak.Rotation = math.deg(angle)
+                streak.BackgroundTransparency = 1 - intensity * 0.15
+                streak.BackgroundColor3 = Color3.new(1, 1, 1)
+            end
+        else
+            for _, streak in ipairs(streaks) do
+                streak.BackgroundTransparency = math.min(streak.BackgroundTransparency + 0.1, 1)
+            end
+        end
+    else
+        -- ★ CLASSIC MODE (full-screen blur) ★
+        local targetBlur = math.clamp(combined, 0, 32)
+        MotionBlur.Size = MotionBlur.Size + (targetBlur - MotionBlur.Size) * 0.5
+        for _, ring in ipairs(radialRings) do
+            ring.ImageTransparency = math.min(ring.ImageTransparency + 0.1, 1)
+        end
+        for _, streak in ipairs(streaks) do
+            streak.BackgroundTransparency = math.min(streak.BackgroundTransparency + 0.1, 1)
+        end
+    end
 end)
 
 -- ═══ COLORS ═══
@@ -148,10 +259,15 @@ local C = {
 }
 
 -- ═══ HELPERS ═══
-local function corner(p,r) local c=Instance.new("UICorner") c.CornerRadius=UDim.new(0,r or 10) c.Parent=p return c end
+function corner(p,r) local c=Instance.new("UICorner") c.CornerRadius=UDim.new(0,r or 10) c.Parent=p return c end
 local function stroke(p,col,t,tr) local s=Instance.new("UIStroke") s.Color=col or C.border s.Thickness=t or 1 s.Transparency=tr or 0.5 s.Parent=p return s end
 local function grad(p,seq,rot) local g=Instance.new("UIGradient") g.Color=seq g.Rotation=rot or 90 g.Parent=p return g end
 local function tween(o,p,d,s,dir) return TS:Create(o,TweenInfo.new(d or 0.25,s or Enum.EasingStyle.Quint,dir or Enum.EasingDirection.Out),p):Play() end
+
+-- Re-corner streaks now that corner is defined
+for _, streak in ipairs(streaks) do
+    corner(streak, 1)
+end
 
 -- ═══════════════════════════════════════════════════════════
 --  MAIN GUI
@@ -208,7 +324,6 @@ LetterBot.Size = UDim2.new(1, 0, 0, 0); LetterBot.Position = UDim2.new(0, 0, 1, 
 LetterBot.AnchorPoint = Vector2.new(0, 1); LetterBot.BackgroundColor3 = Color3.new(0,0,0)
 LetterBot.BorderSizePixel = 0; LetterBot.Parent = OverlayGui
 
--- Lens Flare
 local LensFlare = Instance.new("ImageLabel")
 LensFlare.Size = UDim2.new(0, 400, 0, 400)
 LensFlare.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -219,7 +334,6 @@ LensFlare.ImageColor3 = Color3.fromRGB(255, 220, 150)
 LensFlare.ImageTransparency = 1
 LensFlare.Parent = OverlayGui
 
--- Light Leak
 local LightLeak = Instance.new("Frame")
 LightLeak.Size = UDim2.new(1, 0, 1, 0)
 LightLeak.BackgroundTransparency = 1
@@ -235,7 +349,6 @@ leakGrad.Transparency = NumberSequence.new(1)
 leakGrad.Rotation = 45
 leakGrad.Parent = LightLeak
 
--- Film Burn
 local FilmBurn = Instance.new("ImageLabel")
 FilmBurn.Size = UDim2.new(1, 0, 1, 0)
 FilmBurn.BackgroundTransparency = 1
@@ -243,13 +356,6 @@ FilmBurn.Image = "rbxassetid://5028857084"
 FilmBurn.ImageColor3 = Color3.fromRGB(255, 140, 60)
 FilmBurn.ImageTransparency = 1
 FilmBurn.Parent = OverlayGui
-
--- Glitch effect (colored strips)
-local GlitchHolder = Instance.new("Frame")
-GlitchHolder.Size = UDim2.new(1, 0, 1, 0)
-GlitchHolder.BackgroundTransparency = 1
-GlitchHolder.Visible = false
-GlitchHolder.Parent = OverlayGui
 
 -- Grain animation
 task.spawn(function()
@@ -259,7 +365,6 @@ task.spawn(function()
     end
 end)
 
--- Lens flare follow sun (simulated)
 task.spawn(function()
     while OverlayGui.Parent do
         local t = tick()
@@ -278,7 +383,6 @@ Holder.Position = UDim2.new(0.5, -270, 0.5, -310)
 Holder.BackgroundTransparency = 1
 Holder.Parent = Gui
 
--- Ambient glows
 local glow1 = Instance.new("ImageLabel")
 glow1.Size = UDim2.new(1.5, 0, 1.5, 0); glow1.Position = UDim2.new(-0.25, 0, -0.25, 0)
 glow1.BackgroundTransparency = 1; glow1.Image = "rbxassetid://5028857084"
@@ -297,7 +401,6 @@ glow3.BackgroundTransparency = 1; glow3.Image = "rbxassetid://5028857084"
 glow3.ImageColor3 = C.cyan; glow3.ImageTransparency = 0.88
 glow3.Parent = Holder
 
--- Pulse
 task.spawn(function()
     while Gui.Parent do
         tween(glow1,{ImageTransparency=0.6},2.5,Enum.EasingStyle.Sine)
@@ -311,7 +414,6 @@ task.spawn(function()
     end
 end)
 
--- ═══ MAIN FRAME ═══
 local Main = Instance.new("Frame")
 Main.Size = UDim2.new(1, 0, 1, 0)
 Main.BackgroundColor3 = C.bg
@@ -326,7 +428,7 @@ grad(Main, ColorSequence.new{
     ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 12, 26))
 }, 135)
 
--- Inner particle stars
+-- Inner stars
 local starHolder = Instance.new("Frame")
 starHolder.Size = UDim2.new(1, 0, 1, 0)
 starHolder.BackgroundTransparency = 1
@@ -370,7 +472,6 @@ grad(titleBar, ColorSequence.new{
     ColorSequenceKeypoint.new(1, C.card)
 }, 90)
 
--- Animated title line
 local titleLine = Instance.new("Frame")
 titleLine.Size = UDim2.new(1, -30, 0, 3)
 titleLine.Position = UDim2.new(0, 15, 1, -3)
@@ -397,7 +498,6 @@ task.spawn(function()
     end
 end)
 
--- Logo box
 local logoBox = Instance.new("Frame")
 logoBox.Size = UDim2.new(0, 46, 0, 46)
 logoBox.Position = UDim2.new(0, 14, 0.5, -23)
@@ -414,7 +514,6 @@ logo.Text = "🎬"
 logo.TextSize = 26
 logo.Parent = logoBox
 
--- Rotate logo slowly
 task.spawn(function()
     while Gui.Parent do
         tween(logoBox, {Rotation = 360}, 20, Enum.EasingStyle.Linear)
@@ -444,41 +543,30 @@ local subText = Instance.new("TextLabel")
 subText.Size = UDim2.new(0, 300, 0, 16)
 subText.Position = UDim2.new(0, 72, 0, 38)
 subText.BackgroundTransparency = 1
-subText.Text = "★ ULTRA EDITION v3.0"
+subText.Text = "★ ULTRA v4.0 • RADIAL BLUR"
 subText.TextColor3 = C.subtext
 subText.Font = Enum.Font.GothamSemibold
 subText.TextSize = 10
 subText.TextXAlignment = Enum.TextXAlignment.Left
 subText.Parent = titleBar
 
--- FPS box
+-- FPS
 local fpsBox = Instance.new("Frame")
-fpsBox.Size = UDim2.new(0, 68, 0, 30)
-fpsBox.Position = UDim2.new(1, -200, 0.5, -15)
-fpsBox.BackgroundColor3 = C.cardLight
-fpsBox.BorderSizePixel = 0
-fpsBox.Parent = titleBar
-corner(fpsBox, 8)
-stroke(fpsBox, C.green, 1, 0.4)
+fpsBox.Size = UDim2.new(0, 60, 0, 30); fpsBox.Position = UDim2.new(1, -258, 0.5, -15)
+fpsBox.BackgroundColor3 = C.cardLight; fpsBox.BorderSizePixel = 0; fpsBox.Parent = titleBar
+corner(fpsBox, 8); stroke(fpsBox, C.green, 1, 0.4)
 
 local fpsLabel = Instance.new("TextLabel")
-fpsLabel.Size = UDim2.new(1, 0, 0.6, 0)
-fpsLabel.BackgroundTransparency = 1
-fpsLabel.Text = "60"
-fpsLabel.TextColor3 = C.green
-fpsLabel.Font = Enum.Font.GothamBlack
-fpsLabel.TextSize = 14
+fpsLabel.Size = UDim2.new(1, 0, 0.6, 0); fpsLabel.BackgroundTransparency = 1
+fpsLabel.Text = "60"; fpsLabel.TextColor3 = C.green
+fpsLabel.Font = Enum.Font.GothamBlack; fpsLabel.TextSize = 14
 fpsLabel.Parent = fpsBox
 
 local fpsSubLbl = Instance.new("TextLabel")
-fpsSubLbl.Size = UDim2.new(1, 0, 0.4, -2)
-fpsSubLbl.Position = UDim2.new(0, 0, 0.6, 0)
-fpsSubLbl.BackgroundTransparency = 1
-fpsSubLbl.Text = "FPS"
-fpsSubLbl.TextColor3 = C.muted
-fpsSubLbl.Font = Enum.Font.GothamSemibold
-fpsSubLbl.TextSize = 8
-fpsSubLbl.Parent = fpsBox
+fpsSubLbl.Size = UDim2.new(1, 0, 0.4, -2); fpsSubLbl.Position = UDim2.new(0, 0, 0.6, 0)
+fpsSubLbl.BackgroundTransparency = 1; fpsSubLbl.Text = "FPS"
+fpsSubLbl.TextColor3 = C.muted; fpsSubLbl.Font = Enum.Font.GothamSemibold
+fpsSubLbl.TextSize = 8; fpsSubLbl.Parent = fpsBox
 
 task.spawn(function()
     while Gui.Parent do
@@ -493,6 +581,98 @@ task.spawn(function()
     end
 end)
 
+-- ═══ MASTER TOGGLE BUTTON ═══
+local shadersEnabled = true
+local savedState = {}
+
+local function saveCurrentState()
+    savedState = {
+        blur = Blur.Size, motionBlur = motionBlurEnabled,
+        bloomI = Bloom.Intensity, bloomS = Bloom.Size, bloomT = Bloom.Threshold,
+        contrast = Color.Contrast, sat = Color.Saturation, bright = Color.Brightness,
+        tint = Color.TintColor, exp = Lighting.ExposureCompensation,
+        dofFar = DOF.FarIntensity, dofNear = DOF.NearIntensity,
+        atmD = Atmosphere.Density, atmO = Atmosphere.Offset,
+        atmG = Atmosphere.Glare, atmH = Atmosphere.Haze,
+        sunI = SunRays.Intensity, sunS = SunRays.Spread,
+        fogE = Lighting.FogEnd, fogS = Lighting.FogStart,
+        vign = Vignette.ImageTransparency, grain = FilmGrain.ImageTransparency,
+        chromR = ChromaR.BackgroundTransparency, chromB = ChromaB.BackgroundTransparency,
+        chromRP = ChromaR.Position, chromBP = ChromaB.Position,
+        lens = LensFlare.ImageTransparency, leak = LightLeak.BackgroundTransparency,
+        burn = FilmBurn.ImageTransparency,
+        letterT = LetterTop.Size, letterB = LetterBot.Size,
+    }
+end
+
+local function disableAllShaders()
+    saveCurrentState()
+    Blur.Size = 0; MotionBlur.Size = 0; motionBlurEnabled = false
+    Bloom.Intensity = 0; Bloom.Size = 0; Bloom.Threshold = 2
+    Color.Contrast = 0; Color.Saturation = 0; Color.Brightness = 0
+    Color.TintColor = Color3.new(1,1,1); Lighting.ExposureCompensation = 0
+    DOF.FarIntensity = 0; DOF.NearIntensity = 0
+    Atmosphere.Density = 0; Atmosphere.Offset = 0
+    Atmosphere.Glare = 0; Atmosphere.Haze = 0
+    SunRays.Intensity = 0; SunRays.Spread = 0
+    Lighting.FogEnd = 100000; Lighting.FogStart = 0
+    Vignette.ImageTransparency = 1; FilmGrain.ImageTransparency = 1
+    ChromaR.BackgroundTransparency = 1; ChromaB.BackgroundTransparency = 1
+    LensFlare.ImageTransparency = 1; LightLeak.BackgroundTransparency = 1
+    leakGrad.Transparency = NumberSequence.new(1)
+    FilmBurn.ImageTransparency = 1
+    LetterTop.Size = UDim2.new(1, 0, 0, 0); LetterBot.Size = UDim2.new(1, 0, 0, 0)
+    if weatherFolder then weatherFolder:Destroy(); weatherFolder = nil end
+    for _, ring in ipairs(radialRings) do ring.ImageTransparency = 1 end
+    for _, streak in ipairs(streaks) do streak.BackgroundTransparency = 1 end
+end
+
+local function enableAllShaders()
+    if not savedState.blur then return end
+    Blur.Size = savedState.blur; motionBlurEnabled = savedState.motionBlur
+    Bloom.Intensity = savedState.bloomI; Bloom.Size = savedState.bloomS; Bloom.Threshold = savedState.bloomT
+    Color.Contrast = savedState.contrast; Color.Saturation = savedState.sat; Color.Brightness = savedState.bright
+    Color.TintColor = savedState.tint; Lighting.ExposureCompensation = savedState.exp
+    DOF.FarIntensity = savedState.dofFar; DOF.NearIntensity = savedState.dofNear
+    Atmosphere.Density = savedState.atmD; Atmosphere.Offset = savedState.atmO
+    Atmosphere.Glare = savedState.atmG; Atmosphere.Haze = savedState.atmH
+    SunRays.Intensity = savedState.sunI; SunRays.Spread = savedState.sunS
+    Lighting.FogEnd = savedState.fogE; Lighting.FogStart = savedState.fogS
+    Vignette.ImageTransparency = savedState.vign; FilmGrain.ImageTransparency = savedState.grain
+    ChromaR.BackgroundTransparency = savedState.chromR; ChromaB.BackgroundTransparency = savedState.chromB
+    ChromaR.Position = savedState.chromRP; ChromaB.Position = savedState.chromBP
+    LensFlare.ImageTransparency = savedState.lens; LightLeak.BackgroundTransparency = savedState.leak
+    FilmBurn.ImageTransparency = savedState.burn
+    LetterTop.Size = savedState.letterT; LetterBot.Size = savedState.letterB
+end
+
+local powerBtn = Instance.new("TextButton")
+powerBtn.Size = UDim2.new(0, 34, 0, 34)
+powerBtn.Position = UDim2.new(1, -190, 0.5, -17)
+powerBtn.BackgroundColor3 = C.green
+powerBtn.Text = "⏻"
+powerBtn.TextColor3 = Color3.new(1,1,1)
+powerBtn.Font = Enum.Font.GothamBold
+powerBtn.TextSize = 16
+powerBtn.AutoButtonColor = false
+powerBtn.Parent = titleBar
+corner(powerBtn, 8); stroke(powerBtn, C.green, 1, 0.3)
+
+powerBtn.MouseButton1Click:Connect(function()
+    shadersEnabled = not shadersEnabled
+    if shadersEnabled then
+        enableAllShaders()
+        powerBtn.BackgroundColor3 = C.green
+        local s = powerBtn:FindFirstChildOfClass("UIStroke")
+        if s then s.Color = C.green end
+    else
+        disableAllShaders()
+        powerBtn.BackgroundColor3 = C.red
+        local s = powerBtn:FindFirstChildOfClass("UIStroke")
+        if s then s.Color = C.red end
+    end
+end)
+
 -- Close/Min
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 34, 0, 34); closeBtn.Position = UDim2.new(1, -46, 0.5, -17)
@@ -504,7 +684,7 @@ corner(closeBtn, 8); stroke(closeBtn, C.red, 1, 0.3)
 closeBtn.MouseButton1Click:Connect(function()
     tween(Holder, {Position = UDim2.new(0.5, -270, 1.5, 0)}, 0.4)
     task.wait(0.4)
-    Gui:Destroy(); OverlayGui:Destroy()
+    Gui:Destroy(); OverlayGui:Destroy(); RadialGui:Destroy()
     if weatherFolder then weatherFolder:Destroy() end
 end)
 
@@ -522,7 +702,7 @@ minBtn.MouseButton1Click:Connect(function()
     else tween(Holder, {Size = UDim2.new(0, 540, 0, 620)}, 0.4, Enum.EasingStyle.Back) end
 end)
 
--- ═══ DRAG ═══
+-- DRAG
 local dragging, dragStart, startPos
 titleBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -539,27 +719,22 @@ UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
 end)
 
--- ═══ SIDEBAR ═══
+-- SIDEBAR
 local sidebar = Instance.new("Frame")
 sidebar.Size = UDim2.new(0, 140, 1, -140)
 sidebar.Position = UDim2.new(0, 12, 0, 80)
 sidebar.BackgroundColor3 = C.card
 sidebar.BorderSizePixel = 0
 sidebar.Parent = Main
-corner(sidebar, 14)
-stroke(sidebar, C.border, 1, 0.5)
+corner(sidebar, 14); stroke(sidebar, C.border, 1, 0.5)
 
 local sideScroll = Instance.new("ScrollingFrame")
-sideScroll.Size = UDim2.new(1, 0, 1, 0)
-sideScroll.BackgroundTransparency = 1
-sideScroll.BorderSizePixel = 0
-sideScroll.ScrollBarThickness = 0
-sideScroll.CanvasSize = UDim2.new(0, 0, 0, 500)
-sideScroll.Parent = sidebar
+sideScroll.Size = UDim2.new(1, 0, 1, 0); sideScroll.BackgroundTransparency = 1
+sideScroll.BorderSizePixel = 0; sideScroll.ScrollBarThickness = 0
+sideScroll.CanvasSize = UDim2.new(0, 0, 0, 500); sideScroll.Parent = sidebar
 
 local sideLayout = Instance.new("UIListLayout")
-sideLayout.Padding = UDim.new(0, 6)
-sideLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+sideLayout.Padding = UDim.new(0, 6); sideLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 sideLayout.Parent = sideScroll
 local sidePad = Instance.new("UIPadding")
 sidePad.PaddingTop = UDim.new(0, 10); sidePad.PaddingBottom = UDim.new(0, 10)
@@ -580,14 +755,10 @@ local tabNames = {
 }
 
 local content = Instance.new("Frame")
-content.Size = UDim2.new(1, -164, 1, -140)
-content.Position = UDim2.new(0, 156, 0, 80)
-content.BackgroundColor3 = C.card
-content.BorderSizePixel = 0
-content.ClipsDescendants = true
-content.Parent = Main
-corner(content, 14)
-stroke(content, C.border, 1, 0.5)
+content.Size = UDim2.new(1, -164, 1, -140); content.Position = UDim2.new(0, 156, 0, 80)
+content.BackgroundColor3 = C.card; content.BorderSizePixel = 0
+content.ClipsDescendants = true; content.Parent = Main
+corner(content, 14); stroke(content, C.border, 1, 0.5)
 
 for _, info in ipairs(tabNames) do
     local page = Instance.new("ScrollingFrame")
@@ -627,7 +798,7 @@ for _, info in ipairs(tabNames) do
     tabs[info.id] = b
 end
 
--- Status
+-- STATUS
 local statusBar = Instance.new("Frame")
 statusBar.Size = UDim2.new(1, -24, 0, 34); statusBar.Position = UDim2.new(0, 12, 1, -46)
 statusBar.BackgroundColor3 = C.card; statusBar.BorderSizePixel = 0; statusBar.Parent = Main
@@ -640,7 +811,7 @@ corner(statusDot, 5); stroke(statusDot, C.green, 2, 0.4)
 
 local statusText = Instance.new("TextLabel")
 statusText.Size = UDim2.new(1, -34, 1, 0); statusText.Position = UDim2.new(0, 32, 0, 0)
-statusText.BackgroundTransparency = 1; statusText.Text = "🎬 Nova Cinematic Ultra ready"
+statusText.BackgroundTransparency = 1; statusText.Text = "🎬 Ready — Try 'Radial Blur' in Motion tab!"
 statusText.TextColor3 = C.text; statusText.Font = Enum.Font.GothamSemibold
 statusText.TextSize = 11; statusText.TextXAlignment = Enum.TextXAlignment.Left
 statusText.Parent = statusBar
@@ -661,10 +832,7 @@ task.spawn(function()
     end
 end)
 
--- ═══════════════════════════════════════════════════════════
---  COMPONENTS
--- ═══════════════════════════════════════════════════════════
-
+-- COMPONENTS
 local function sectionLabel(parent, text, yPos)
     local f = Instance.new("Frame")
     f.Size = UDim2.new(1, -20, 0, 24); f.Position = UDim2.new(0, 10, 0, yPos)
@@ -672,8 +840,7 @@ local function sectionLabel(parent, text, yPos)
     local line = Instance.new("Frame")
     line.Size = UDim2.new(0, 4, 0, 14); line.Position = UDim2.new(0, 0, 0.5, -7)
     line.BackgroundColor3 = C.accent; line.BorderSizePixel = 0; line.Parent = f
-    corner(line, 2)
-    grad(line, ColorSequence.new(C.accent, C.accent2), 90)
+    corner(line, 2); grad(line, ColorSequence.new(C.accent, C.accent2), 90)
     local l = Instance.new("TextLabel")
     l.Size = UDim2.new(1, -12, 1, 0); l.Position = UDim2.new(0, 12, 0, 0)
     l.BackgroundTransparency = 1; l.Text = text; l.TextColor3 = C.accent
@@ -704,8 +871,7 @@ local function createSlider(parent, text, yPos, min, max, default, decimals, cal
     local pct = (default - min) / (max - min)
     fill.Size = UDim2.new(pct, 0, 1, 0); fill.BackgroundColor3 = C.accent
     fill.BorderSizePixel = 0; fill.Parent = track
-    corner(fill, 3)
-    grad(fill, ColorSequence.new(C.accent, C.accent2), 0)
+    corner(fill, 3); grad(fill, ColorSequence.new(C.accent, C.accent2), 0)
     local knob = Instance.new("Frame")
     knob.Size = UDim2.new(0, 16, 0, 16); knob.Position = UDim2.new(pct, -8, 0.5, -8)
     knob.BackgroundColor3 = Color3.new(1,1,1); knob.BorderSizePixel = 0
@@ -793,8 +959,7 @@ local function createColorPicker(parent, text, yPos, defaultColor, callback)
     l.BackgroundTransparency = 1; l.Text = text; l.TextColor3 = C.text
     l.Font = Enum.Font.GothamSemibold; l.TextSize = 11
     l.TextXAlignment = Enum.TextXAlignment.Left; l.Parent = c
-    local cur = defaultColor
-    local h, s, v = 0, 0, 1
+    local cur = defaultColor; local h, s, v = 0, 0, 1
     local sv = Instance.new("ImageLabel")
     sv.Size = UDim2.new(0, 130, 0, 130); sv.Position = UDim2.new(0, 10, 0, 36)
     sv.BackgroundColor3 = Color3.fromHSV(h, 1, 1); sv.Image = "rbxassetid://4155801252"
@@ -864,9 +1029,7 @@ local function createColorPicker(parent, text, yPos, defaultColor, callback)
     end)
 end
 
--- ═══════════════════════════════════════════════════════════
---  TAB: COLOR
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: COLOR ═══
 local colorPage = tabPages["Color"]
 colorPage.CanvasSize = UDim2.new(0, 0, 0, 620)
 
@@ -879,19 +1042,14 @@ createSlider(colorPage, "Exposure", 230, -3, 3, 0, 2, function(v) Lighting.Expos
 sectionLabel(colorPage, "★ COLOR TEMPERATURE", 306)
 createSlider(colorPage, "Temperature (Cool↔Warm)", 332, -100, 100, 0, 0, function(val)
     local warm = val / 100
-    if warm > 0 then
-        Color.TintColor = Color3.new(1, 1 - warm*0.15, 1 - warm*0.3)
-    else
-        Color.TintColor = Color3.new(1 + warm*0.3, 1 + warm*0.15, 1)
-    end
+    if warm > 0 then Color.TintColor = Color3.new(1, 1 - warm*0.15, 1 - warm*0.3)
+    else Color.TintColor = Color3.new(1 + warm*0.3, 1 + warm*0.15, 1) end
 end)
 
 sectionLabel(colorPage, "★ CUSTOM TINT", 408)
 createColorPicker(colorPage, "Tint Color:", 434, Color3.new(1,1,1), function(c) Color.TintColor = c end)
 
--- ═══════════════════════════════════════════════════════════
---  TAB: BLOOM
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: BLOOM ═══
 local bloomPage = tabPages["Bloom"]
 bloomPage.CanvasSize = UDim2.new(0, 0, 0, 280)
 
@@ -900,11 +1058,9 @@ createSlider(bloomPage, "Intensity", 32, 0, 3, 0.4, 2, function(v) Bloom.Intensi
 createSlider(bloomPage, "Size", 98, 0, 56, 24, 0, function(v) Bloom.Size = v end)
 createSlider(bloomPage, "Threshold", 164, 0, 2, 0.95, 2, function(v) Bloom.Threshold = v end)
 
--- ═══════════════════════════════════════════════════════════
---  TAB: MOTION BLUR (dedicated)
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: MOTION BLUR ═══
 local motionPage = tabPages["Motion"]
-motionPage.CanvasSize = UDim2.new(0, 0, 0, 340)
+motionPage.CanvasSize = UDim2.new(0, 0, 0, 500)
 
 sectionLabel(motionPage, "★ MOTION BLUR PRO", 5)
 createToggle(motionPage, "💨", "Enable Motion Blur", 32, false, function(s)
@@ -912,15 +1068,20 @@ createToggle(motionPage, "💨", "Enable Motion Blur", 32, false, function(s)
     if not s then MotionBlur.Size = 0; cameraHistory = {} end
     setStatus(s and "💨 Motion blur active" or "💨 Motion blur off", s and C.green or C.muted)
 end)
-createSlider(motionPage, "Blur Strength", 82, 0, 5, 0.5, 2, function(v) motionBlurStrength = v end)
-createSlider(motionPage, "Quality (Samples)", 148, 2, 16, 8, 0, function(v) motionBlurQuality = v end)
 
-sectionLabel(motionPage, "★ STATIC BLUR", 224)
-createSlider(motionPage, "Static Blur", 250, 0, 56, 0, 0, function(v) Blur.Size = v end)
+createToggle(motionPage, "🎯", "Radial Mode (Blur Edges Only)", 82, true, function(s)
+    radialBlurEnabled = s
+    setStatus(s and "🎯 Radial blur ON — center stays sharp!" or "💨 Full-screen blur mode", C.accent)
+end)
 
--- ═══════════════════════════════════════════════════════════
---  TAB: DOF
--- ═══════════════════════════════════════════════════════════
+createSlider(motionPage, "Blur Strength", 132, 0, 5, 0.5, 2, function(v) motionBlurStrength = v end)
+createSlider(motionPage, "Quality (Samples)", 198, 2, 16, 8, 0, function(v) motionBlurQuality = v end)
+createSlider(motionPage, "Focus Size (Sharp Center)", 264, 0.05, 0.9, 0.3, 2, function(v) radialFocusSize = v end)
+
+sectionLabel(motionPage, "★ STATIC BLUR", 340)
+createSlider(motionPage, "Static Blur", 366, 0, 56, 0, 0, function(v) Blur.Size = v end)
+
+-- ═══ TAB: DOF ═══
 local dofPage = tabPages["DOF"]
 dofPage.CanvasSize = UDim2.new(0, 0, 0, 340)
 
@@ -930,51 +1091,35 @@ createSlider(dofPage, "Near Intensity", 98, 0, 1, 0, 2, function(v) DOF.NearInte
 createSlider(dofPage, "Focus Distance", 164, 0, 500, 50, 0, function(v) DOF.FocusDistance = v end)
 createSlider(dofPage, "In-Focus Radius", 230, 0, 500, 50, 0, function(v) DOF.InFocusRadius = v end)
 
--- ═══════════════════════════════════════════════════════════
---  TAB: TIME OF DAY
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: TIME ═══
 local timePage = tabPages["Time"]
-timePage.CanvasSize = UDim2.new(0, 0, 0, 400)
+timePage.CanvasSize = UDim2.new(0, 0, 0, 440)
 
 sectionLabel(timePage, "★ TIME OF DAY", 5)
 
 local timeDisplay = Instance.new("Frame")
-timeDisplay.Size = UDim2.new(1, -20, 0, 80)
-timeDisplay.Position = UDim2.new(0, 10, 0, 32)
-timeDisplay.BackgroundColor3 = C.cardLight
-timeDisplay.BorderSizePixel = 0
+timeDisplay.Size = UDim2.new(1, -20, 0, 80); timeDisplay.Position = UDim2.new(0, 10, 0, 32)
+timeDisplay.BackgroundColor3 = C.cardLight; timeDisplay.BorderSizePixel = 0
 timeDisplay.Parent = timePage
-corner(timeDisplay, 10)
-stroke(timeDisplay, C.border, 1, 0.5)
+corner(timeDisplay, 10); stroke(timeDisplay, C.border, 1, 0.5)
 
 local timeIcon = Instance.new("TextLabel")
-timeIcon.Size = UDim2.new(0, 60, 0, 60)
-timeIcon.Position = UDim2.new(0, 10, 0.5, -30)
-timeIcon.BackgroundTransparency = 1
-timeIcon.Text = "🌅"
-timeIcon.TextSize = 40
+timeIcon.Size = UDim2.new(0, 60, 0, 60); timeIcon.Position = UDim2.new(0, 10, 0.5, -30)
+timeIcon.BackgroundTransparency = 1; timeIcon.Text = "🌅"; timeIcon.TextSize = 40
 timeIcon.Parent = timeDisplay
 
 local timeText = Instance.new("TextLabel")
-timeText.Size = UDim2.new(1, -80, 0, 30)
-timeText.Position = UDim2.new(0, 76, 0, 12)
-timeText.BackgroundTransparency = 1
-timeText.Text = "12:00"
-timeText.TextColor3 = C.text
-timeText.Font = Enum.Font.GothamBlack
-timeText.TextSize = 24
-timeText.TextXAlignment = Enum.TextXAlignment.Left
+timeText.Size = UDim2.new(1, -80, 0, 30); timeText.Position = UDim2.new(0, 76, 0, 12)
+timeText.BackgroundTransparency = 1; timeText.Text = "12:00"
+timeText.TextColor3 = C.text; timeText.Font = Enum.Font.GothamBlack
+timeText.TextSize = 24; timeText.TextXAlignment = Enum.TextXAlignment.Left
 timeText.Parent = timeDisplay
 
 local timeSubText = Instance.new("TextLabel")
-timeSubText.Size = UDim2.new(1, -80, 0, 20)
-timeSubText.Position = UDim2.new(0, 76, 0, 42)
-timeSubText.BackgroundTransparency = 1
-timeSubText.Text = "Midday"
-timeSubText.TextColor3 = C.subtext
-timeSubText.Font = Enum.Font.GothamSemibold
-timeSubText.TextSize = 11
-timeSubText.TextXAlignment = Enum.TextXAlignment.Left
+timeSubText.Size = UDim2.new(1, -80, 0, 20); timeSubText.Position = UDim2.new(0, 76, 0, 42)
+timeSubText.BackgroundTransparency = 1; timeSubText.Text = "Midday"
+timeSubText.TextColor3 = C.subtext; timeSubText.Font = Enum.Font.GothamSemibold
+timeSubText.TextSize = 11; timeSubText.TextXAlignment = Enum.TextXAlignment.Left
 timeSubText.Parent = timeDisplay
 
 local function getTimeInfo(hour)
@@ -992,8 +1137,7 @@ createSlider(timePage, "Time (Hours)", 124, 0, 24, 12, 1, function(v)
     Lighting.ClockTime = v
     local icon, name, col = getTimeInfo(v)
     timeIcon.Text = icon
-    local h = math.floor(v)
-    local m = math.floor((v - h) * 60)
+    local h = math.floor(v); local m = math.floor((v - h) * 60)
     timeText.Text = string.format("%02d:%02d", h, m)
     timeSubText.Text = name
     tween(timeText, {TextColor3 = col}, 0.3)
@@ -1001,25 +1145,19 @@ end)
 
 sectionLabel(timePage, "★ QUICK TIMES", 200)
 createButton(timePage, "🌅", "Sunrise (6:30)", 226, C.accent3, C.accent2, function()
-    Lighting.ClockTime = 6.5
-    setStatus("⏰ Set to Sunrise", C.accent2)
+    Lighting.ClockTime = 6.5; setStatus("⏰ Sunrise", C.accent2)
 end)
 createButton(timePage, "☀️", "Midday (12:00)", 274, C.yellow, C.accent2, function()
-    Lighting.ClockTime = 12
-    setStatus("⏰ Set to Midday", C.yellow)
+    Lighting.ClockTime = 12; setStatus("⏰ Midday", C.yellow)
 end)
 createButton(timePage, "🌇", "Sunset (18:00)", 322, C.accent, C.accent3, function()
-    Lighting.ClockTime = 18
-    setStatus("⏰ Set to Sunset", C.accent)
+    Lighting.ClockTime = 18; setStatus("⏰ Sunset", C.accent)
 end)
 createButton(timePage, "🌙", "Night (23:00)", 370, C.purple, Color3.fromRGB(80, 60, 180), function()
-    Lighting.ClockTime = 23
-    setStatus("⏰ Set to Night", C.purple)
+    Lighting.ClockTime = 23; setStatus("⏰ Night", C.purple)
 end)
 
--- ═══════════════════════════════════════════════════════════
---  TAB: WEATHER
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: WEATHER ═══
 local weatherPage = tabPages["Weather"]
 weatherPage.CanvasSize = UDim2.new(0, 0, 0, 400)
 
@@ -1035,93 +1173,63 @@ local function createWeather(type_)
     weatherFolder = Instance.new("Folder")
     weatherFolder.Name = "NovaWeatherFolder"
     weatherFolder.Parent = workspace
-    
     local char = plr.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    
     if type_ == "Rain" then
         local attach = Instance.new("Attachment")
         attach.Parent = char.HumanoidRootPart
         attach.Position = Vector3.new(0, 30, 0)
-        
         local rain = Instance.new("ParticleEmitter")
         rain.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-        rain.Rate = 500
-        rain.Lifetime = NumberRange.new(1, 1.5)
-        rain.Speed = NumberRange.new(80, 100)
-        rain.SpreadAngle = Vector2.new(5, 5)
-        rain.Size = NumberSequence.new(0.3)
-        rain.Color = ColorSequence.new(Color3.fromRGB(150, 180, 220))
-        rain.Transparency = NumberSequence.new(0.3)
-        rain.LightEmission = 0.5
-        rain.EmissionDirection = Enum.NormalId.Bottom
-        rain.Parent = attach
-        weatherFolder:SetAttribute("Attach", true)
-        rain:Clone().Parent = attach
+        rain.Rate = 500; rain.Lifetime = NumberRange.new(1, 1.5)
+        rain.Speed = NumberRange.new(80, 100); rain.SpreadAngle = Vector2.new(5, 5)
+        rain.Size = NumberSequence.new(0.3); rain.Color = ColorSequence.new(Color3.fromRGB(150, 180, 220))
+        rain.Transparency = NumberSequence.new(0.3); rain.LightEmission = 0.5
+        rain.EmissionDirection = Enum.NormalId.Bottom; rain.Parent = attach
         attach.Parent = weatherFolder
-        
     elseif type_ == "Snow" then
         local attach = Instance.new("Attachment")
         attach.Parent = char.HumanoidRootPart
         attach.Position = Vector3.new(0, 40, 0)
-        
         local snow = Instance.new("ParticleEmitter")
         snow.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-        snow.Rate = 300
-        snow.Lifetime = NumberRange.new(3, 5)
-        snow.Speed = NumberRange.new(5, 15)
-        snow.SpreadAngle = Vector2.new(180, 180)
-        snow.Size = NumberSequence.new(0.5)
-        snow.Color = ColorSequence.new(Color3.new(1, 1, 1))
-        snow.Transparency = NumberSequence.new(0.2)
-        snow.Rotation = NumberRange.new(0, 360)
-        snow.RotSpeed = NumberRange.new(-90, 90)
-        snow.Parent = attach
+        snow.Rate = 300; snow.Lifetime = NumberRange.new(3, 5)
+        snow.Speed = NumberRange.new(5, 15); snow.SpreadAngle = Vector2.new(180, 180)
+        snow.Size = NumberSequence.new(0.5); snow.Color = ColorSequence.new(Color3.new(1, 1, 1))
+        snow.Transparency = NumberSequence.new(0.2); snow.Rotation = NumberRange.new(0, 360)
+        snow.RotSpeed = NumberRange.new(-90, 90); snow.Parent = attach
         attach.Parent = weatherFolder
-        
     elseif type_ == "Sandstorm" then
         local attach = Instance.new("Attachment")
         attach.Parent = char.HumanoidRootPart
-        
         local sand = Instance.new("ParticleEmitter")
         sand.Texture = "rbxasset://textures/particles/smoke_main.dds"
-        sand.Rate = 200
-        sand.Lifetime = NumberRange.new(2, 4)
-        sand.Speed = NumberRange.new(40, 60)
-        sand.SpreadAngle = Vector2.new(45, 45)
-        sand.Size = NumberSequence.new(15)
-        sand.Color = ColorSequence.new(Color3.fromRGB(210, 180, 140))
-        sand.Transparency = NumberSequence.new(0.6)
-        sand.Parent = attach
+        sand.Rate = 200; sand.Lifetime = NumberRange.new(2, 4)
+        sand.Speed = NumberRange.new(40, 60); sand.SpreadAngle = Vector2.new(45, 45)
+        sand.Size = NumberSequence.new(15); sand.Color = ColorSequence.new(Color3.fromRGB(210, 180, 140))
+        sand.Transparency = NumberSequence.new(0.6); sand.Parent = attach
         attach.Parent = weatherFolder
     end
-    
     currentWeather = type_
 end
 
 createButton(weatherPage, "🌧", "Rain", 32, C.cyan, Color3.fromRGB(80, 140, 200), function()
-    createWeather("Rain")
-    setStatus("🌧 Rain enabled", C.cyan)
+    createWeather("Rain"); setStatus("🌧 Rain", C.cyan)
 end)
 createButton(weatherPage, "❄️", "Snow", 82, Color3.fromRGB(220, 230, 255), Color3.fromRGB(180, 200, 240), function()
-    createWeather("Snow")
-    setStatus("❄️ Snow enabled", C.cyan)
+    createWeather("Snow"); setStatus("❄️ Snow", C.cyan)
 end)
 createButton(weatherPage, "🌪", "Sandstorm", 132, C.accent2, Color3.fromRGB(180, 130, 60), function()
-    createWeather("Sandstorm")
-    setStatus("🌪 Sandstorm enabled", C.accent2)
+    createWeather("Sandstorm"); setStatus("🌪 Sandstorm", C.accent2)
 end)
 createButton(weatherPage, "☀️", "Clear Weather", 182, C.green, Color3.fromRGB(40, 180, 100), function()
-    clearWeather()
-    setStatus("☀️ Weather cleared", C.green)
+    clearWeather(); setStatus("☀️ Clear", C.green)
 end)
 
-sectionLabel(weatherPage, "★ FOG (WEATHER FEEL)", 244)
+sectionLabel(weatherPage, "★ FOG", 244)
 createSlider(weatherPage, "Fog Density (End)", 270, 0, 5000, 5000, 0, function(v) Lighting.FogEnd = v end)
 
--- ═══════════════════════════════════════════════════════════
---  TAB: WORLD
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: WORLD ═══
 local worldPage = tabPages["World"]
 worldPage.CanvasSize = UDim2.new(0, 0, 0, 620)
 
@@ -1136,12 +1244,10 @@ createSlider(worldPage, "Ray Intensity", 332, 0, 1, 0.1, 2, function(v) SunRays.
 createSlider(worldPage, "Ray Spread", 398, 0, 1, 0.5, 2, function(v) SunRays.Spread = v end)
 
 sectionLabel(worldPage, "★ FOG CONTROL", 474)
-createSlider(worldPage, "Fog End Distance", 500, 0, 10000, 5000, 0, function(v) Lighting.FogEnd = v end)
+createSlider(worldPage, "Fog End", 500, 0, 10000, 5000, 0, function(v) Lighting.FogEnd = v end)
 createSlider(worldPage, "Fog Start", 566, 0, 5000, 0, 0, function(v) Lighting.FogStart = v end)
 
--- ═══════════════════════════════════════════════════════════
---  TAB: FX (Overlays + New Effects)
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: FX ═══
 local fxPage = tabPages["FX"]
 fxPage.CanvasSize = UDim2.new(0, 0, 0, 800)
 
@@ -1178,20 +1284,19 @@ end)
 sectionLabel(fxPage, "★ FILM BURN", 516)
 createSlider(fxPage, "Film Burn Intensity", 542, 0, 1, 0, 2, function(v) FilmBurn.ImageTransparency = 1 - v * 0.6 end)
 
-sectionLabel(fxPage, "★ LETTERBOX (CINEMATIC BARS)", 618)
+sectionLabel(fxPage, "★ LETTERBOX", 618)
 createSlider(fxPage, "Bar Size", 644, 0, 200, 0, 0, function(v)
     tween(LetterTop, {Size = UDim2.new(1, 0, 0, v)}, 0.3)
     tween(LetterBot, {Size = UDim2.new(1, 0, 0, v)}, 0.3)
 end)
 
--- ═══════════════════════════════════════════════════════════
---  TAB: PRESETS
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: PRESETS ═══
 local presetPage = tabPages["Presets"]
-presetPage.CanvasSize = UDim2.new(0, 0, 0, 1050)
+presetPage.CanvasSize = UDim2.new(0, 0, 0, 1100)
 
 local presets = {
     ["🎬 Cinematic"] = {c=0.15,sa=0.1,br=0.02,tn=Color3.fromRGB(255,240,220),bi=0.6,bs=30,bt=0.85,mb=true,ms=0.5,dfF=0.15,dfC=80,dfR=60,aD=0.35,aO=0.3,su=0.15,ss=0.6,fg=5000,vi=0.3,gr=0.15,ch=0,le=0,lk=0,fb=0,lb=0,ex=0,tm=13.5},
+    ["🏎 Racing (Radial)"] = {c=0.25,sa=0.15,br=0.05,tn=Color3.fromRGB(255,240,220),bi=0.8,bs=30,bt=0.85,mb=true,ms=1.5,dfF=0.1,dfC=100,dfR=80,aD=0.3,aO=0.3,su=0.2,ss=0.7,fg=6000,vi=0.4,gr=0.15,ch=3,le=0.2,lk=0,fb=0,lb=0,ex=0.1,tm=13},
     ["🌅 Golden Hour"] = {c=0.2,sa=0.25,br=0.05,tn=Color3.fromRGB(255,210,160),bi=0.8,bs=40,bt=0.8,mb=true,ms=0.4,dfF=0.1,dfC=100,dfR=80,aD=0.4,aO=0.4,su=0.4,ss=0.8,fg=3000,vi=0.4,gr=0.1,ch=0,le=0.4,lk=0.3,fb=0,lb=0,ex=0.2,tm=6.8},
     ["❄️ Cold Winter"] = {c=0.25,sa=-0.15,br=0.03,tn=Color3.fromRGB(200,220,255),bi=0.5,bs=20,bt=0.9,mb=true,ms=0.3,dfF=0.05,dfC=120,dfR=100,aD=0.6,aO=0.2,su=0.05,ss=0.4,fg=2000,vi=0.5,gr=0.05,ch=0,le=0,lk=0,fb=0,lb=0,ex=0.1,tm=15},
     ["🌙 Dark Horror"] = {c=0.4,sa=-0.3,br=-0.15,tn=Color3.fromRGB(180,180,210),bi=0.3,bs=15,bt=0.95,mb=true,ms=0.7,dfF=0.3,dfC=40,dfR=30,aD=0.7,aO=0.1,su=0,ss=0,fg=800,vi=0.9,gr=0.6,ch=8,le=0,lk=0,fb=0,lb=0,ex=-0.5,tm=2},
@@ -1250,9 +1355,10 @@ end
 
 sectionLabel(presetPage, "★ CINEMATIC PRESETS", 5)
 
-local pOrder = {"🎬 Cinematic","🌅 Golden Hour","❄️ Cold Winter","🌙 Dark Horror","🌈 Vibrant","🎥 Classic Movie","☀️ Bright Sunny","🌸 Anime","📺 Retro VHS","🎮 Cyberpunk","🔥 Blockbuster","🌊 Underwater","🌵 Desert","🌌 Space","🏔 Mountain","🍂 Autumn","🌆 Neon City","🌫 Foggy","🎨 Painting","🔴 Blood Moon","🚫 Reset"}
+local pOrder = {"🎬 Cinematic","🏎 Racing (Radial)","🌅 Golden Hour","❄️ Cold Winter","🌙 Dark Horror","🌈 Vibrant","🎥 Classic Movie","☀️ Bright Sunny","🌸 Anime","📺 Retro VHS","🎮 Cyberpunk","🔥 Blockbuster","🌊 Underwater","🌵 Desert","🌌 Space","🏔 Mountain","🍂 Autumn","🌆 Neon City","🌫 Foggy","🎨 Painting","🔴 Blood Moon","🚫 Reset"}
 local pCols = {
-    {C.accent, C.accent2}, {Color3.fromRGB(255,180,80), Color3.fromRGB(255,120,40)},
+    {C.accent, C.accent2}, {C.red, C.accent2},
+    {Color3.fromRGB(255,180,80), Color3.fromRGB(255,120,40)},
     {Color3.fromRGB(120,180,240), Color3.fromRGB(80,140,220)}, {Color3.fromRGB(80,80,120), Color3.fromRGB(40,40,80)},
     {Color3.fromRGB(255,100,200), C.purple}, {Color3.fromRGB(180,100,200), Color3.fromRGB(120,80,180)},
     {C.yellow, Color3.fromRGB(255,180,60)}, {Color3.fromRGB(255,150,200), Color3.fromRGB(255,100,180)},
@@ -1274,42 +1380,30 @@ for i, name in ipairs(pOrder) do
     end)
 end
 
--- ═══════════════════════════════════════════════════════════
---  TAB: INFO
--- ═══════════════════════════════════════════════════════════
+-- ═══ TAB: INFO ═══
 local infoPage = tabPages["Info"]
 infoPage.CanvasSize = UDim2.new(0, 0, 0, 400)
 
 sectionLabel(infoPage, "★ NOVA CINEMATIC ULTRA", 5)
 
 local infoBox = Instance.new("Frame")
-infoBox.Size = UDim2.new(1, -20, 0, 340)
-infoBox.Position = UDim2.new(0, 10, 0, 32)
-infoBox.BackgroundColor3 = C.cardLight
-infoBox.BorderSizePixel = 0
+infoBox.Size = UDim2.new(1, -20, 0, 340); infoBox.Position = UDim2.new(0, 10, 0, 32)
+infoBox.BackgroundColor3 = C.cardLight; infoBox.BorderSizePixel = 0
 infoBox.Parent = infoPage
-corner(infoBox, 10)
-stroke(infoBox, C.accent, 1, 0.4)
+corner(infoBox, 10); stroke(infoBox, C.accent, 1, 0.4)
 
 local infoText = Instance.new("TextLabel")
-infoText.Size = UDim2.new(1, -20, 1, -20)
-infoText.Position = UDim2.new(0, 10, 0, 10)
+infoText.Size = UDim2.new(1, -20, 1, -20); infoText.Position = UDim2.new(0, 10, 0, 10)
 infoText.BackgroundTransparency = 1
-infoText.Text = "🎬 NOVA CINEMATIC ULTRA v3.0\n\n★ 21 built-in cinematic presets\n★ Beautiful accumulation motion blur\n★ Time of day control (0-24h)\n★ Weather system (rain/snow/sand)\n★ Color temperature (warm/cool)\n★ Lens flare & light leaks\n★ Film burn & retro VHS effects\n★ Full HSV color picker\n★ Live FPS counter\n\n🎮 KEYBINDS:\n★ ]  → Toggle UI\n★ Drag title bar to move\n\n⚙️ TIP: Try 'Cinematic' or 'Cyberpunk' first!\n\nMade with ❤️ by Nova"
-infoText.TextColor3 = C.text
-infoText.Font = Enum.Font.Gotham
-infoText.TextSize = 12
-infoText.TextXAlignment = Enum.TextXAlignment.Left
-infoText.TextYAlignment = Enum.TextYAlignment.Top
-infoText.TextWrapped = true
+infoText.Text = "🎬 NOVA CINEMATIC ULTRA v4.0\n\n★ NEW: Radial Motion Blur (Racing style!)\n★ Sharp center, blurred edges\n★ 22 built-in cinematic presets\n★ Time of day control (0-24h)\n★ Weather system (rain/snow/sand)\n★ Full HSV color picker\n★ Master ⏻ power button\n\n🎮 CONTROLS:\n★ ]  → Toggle UI\n★ ⏻  → Disable all shaders\n★ Drag title bar to move\n\n💡 TIP: Try the 'Racing' preset with radial blur enabled — feels like driving a real car!\n\nMade with ❤️ by Nova"
+infoText.TextColor3 = C.text; infoText.Font = Enum.Font.Gotham
+infoText.TextSize = 12; infoText.TextXAlignment = Enum.TextXAlignment.Left
+infoText.TextYAlignment = Enum.TextYAlignment.Top; infoText.TextWrapped = true
 infoText.Parent = infoBox
 
--- Activate default
 switchTab("Color")
 
--- ═══════════════════════════════════════════════════════════
---  KEYBIND
--- ═══════════════════════════════════════════════════════════
+-- KEYBIND
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.KeyCode == Enum.KeyCode.RightBracket then
@@ -1317,15 +1411,13 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- ═══════════════════════════════════════════════════════════
---  ENTRY ANIMATION
--- ═══════════════════════════════════════════════════════════
+-- ENTRY ANIMATION
 Holder.Position = UDim2.new(0.5, -270, -1.5, 0)
 tween(Holder, {Position = UDim2.new(0.5, -270, 0.5, -310)}, 0.8, Enum.EasingStyle.Back)
 
 print("═══════════════════════════════════════")
-print("  🎬 NOVA CINEMATIC ULTRA v3.0")
-print("  💨 Beautiful Motion Blur | ⏰ Time of Day")
-print("  🌦 Weather | ✨ Lens Flare | 21 Presets")
+print("  🎬 NOVA CINEMATIC ULTRA v4.0")
+print("  🏎 Radial Motion Blur (Center Sharp)")
+print("  ⏻ Master Power Button in title")
 print("  Press ] to toggle UI")
 print("═══════════════════════════════════════")
