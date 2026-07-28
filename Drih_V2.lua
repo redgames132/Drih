@@ -1,124 +1,117 @@
---// ═══════════════════════════════════════════════════════════
---// REDARELHOS HUB v2.0 — VERMELHO & PRETO
---// LocalScript → StarterPlayerScripts ou StarterGui
---// Tecla para abrir/fechar: RightShift
---// ═══════════════════════════════════════════════════════════
+--// ══════════════════════════════════════════════════════════════
+--// REDARELHOS HUB v3.0 — VERMELHO & PRETO
+--// LocalScript → StarterGui
+--// Abrir/Fechar: RightShift ou botão na tela
+--// ══════════════════════════════════════════════════════════════
 
+--// SERVICES
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
-local StarterGui = game:GetService("StarterGui")
 
 local Player = Players.LocalPlayer
-local Mouse = Player:GetMouse()
+local PlayerGui = Player:WaitForChild("PlayerGui")
 
--- ════════════════════════════════════════
--- PALETA VERMELHO & PRETO
--- ════════════════════════════════════════
+--// LIMPAR INSTÂNCIAS ANTERIORES
+for _, v in ipairs(PlayerGui:GetChildren()) do
+	if v.Name == "RedarelhosHub" then v:Destroy() end
+end
+for _, v in ipairs(Lighting:GetChildren()) do
+	if v.Name == "RHBlur" then v:Destroy() end
+end
 
-local C = {
-	Accent      = Color3.fromRGB(255, 35, 35),     -- Vermelho neon
-	AccentDark  = Color3.fromRGB(180, 15, 15),      -- Vermelho escuro
-	AccentGlow  = Color3.fromRGB(255, 60, 60),      -- Vermelho brilhante
-	AccentSoft  = Color3.fromRGB(255, 90, 90),      -- Vermelho suave
+--// ══════════════════════════════════════
+--// CORES
+--// ══════════════════════════════════════
 
-	BG1         = Color3.fromRGB(8, 8, 12),         -- Preto profundo
-	BG2         = Color3.fromRGB(14, 14, 20),       -- Painel
-	BG3         = Color3.fromRGB(20, 20, 28),       -- Card
-	BG4         = Color3.fromRGB(28, 28, 38),       -- Pill/Elevado
+local Color = {
+	Red = Color3.fromRGB(255, 30, 30),
+	RedGlow = Color3.fromRGB(255, 55, 55),
+	RedDark = Color3.fromRGB(160, 10, 10),
+	RedSoft = Color3.fromRGB(255, 85, 85),
 
-	White       = Color3.fromRGB(255, 255, 255),
-	TextSub     = Color3.fromRGB(200, 200, 215),
-	TextDim     = Color3.fromRGB(140, 140, 160),
-	DarkGray    = Color3.fromRGB(35, 35, 45),
-	Black       = Color3.fromRGB(0, 0, 0),
-	Green       = Color3.fromRGB(72, 255, 120),
-	Yellow      = Color3.fromRGB(255, 214, 92),
-	Red         = Color3.fromRGB(255, 80, 80),
+	BG = Color3.fromRGB(6, 6, 10),
+	Panel = Color3.fromRGB(12, 12, 18),
+	Card = Color3.fromRGB(18, 18, 26),
+	Elevated = Color3.fromRGB(26, 26, 36),
+
+	White = Color3.fromRGB(255, 255, 255),
+	SubText = Color3.fromRGB(190, 190, 210),
+	DimText = Color3.fromRGB(120, 120, 145),
+	Gray = Color3.fromRGB(40, 40, 52),
+	Black = Color3.fromRGB(0, 0, 0),
+
+	Green = Color3.fromRGB(60, 255, 110),
+	Yellow = Color3.fromRGB(255, 210, 80),
+	ErrRed = Color3.fromRGB(255, 70, 70),
 }
 
--- ════════════════════════════════════════
--- ESTADO GLOBAL
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// ESTADO
+--// ══════════════════════════════════════
 
-local State = {
-	Open = false,
-	Minimized = false,
-	Toggles = {},
-	Stats = {
-		moneyCurrent = 0,
-		sessionMoney = 0,
-		profitPerMin = 0,
-		deliveries = 0,
-		raceWins = 0,
-		raceLosses = 0,
-		kmDriven = 0,
-		sessionTime = "00:00:00",
-		vehicleSpeed = "0 km/h",
-		vehicleMileage = "0 km",
-		vehiclePower = "0 HP",
-		vehicleAcceleration = "--",
-		vehicleTraction = "--",
-		carInfo = "Nenhum veículo detectado.",
-		raceTime = "--:--.---",
-		racePosition = "#--",
-		bestRaceTime = "--:--.---",
-		raceHistory = "Nenhuma corrida registrada.",
-		playersOnline = 0,
-		ping = "-- ms",
-		fps = 0,
-		serverTime = "--:--:--",
-		serverInfo = "",
-	},
+local HubState = {
+	isOpen = false,
+	isMinimized = false,
+	toggles = {},
+	currentTab = nil,
+	savedSize = nil,
+	driftMode = false,
+	speedLimit = 0,
+	nitroActive = false,
 }
 
 local sessionStart = os.clock()
-local moneyHistory = {}
-for i = 1, 24 do moneyHistory[i] = 0 end
+local moneyData = {}
+for i = 1, 24 do moneyData[i] = 0 end
 
--- ════════════════════════════════════════
--- REGISTROS PARA ATUALIZAÇÕES
--- ════════════════════════════════════════
-
-local StatBindings = {}
-local TextBindings = {}
-local ToggleStates = {}
-local ToggleRenderers = {}
-local ToggleSetters = {}
-local AutomationKeys = {}
+local StatLabels = {}
+local TextLabels = {}
+local ToggleFuncs = {}
 local GraphBars = {}
-local AllCards = {}
-local PageMap = {}
+local SearchCards = {}
+local TabPages = {}
+local TabButtons = {}
+local AutoKeys = {}
 
--- ════════════════════════════════════════
--- UTILIDADES
--- ════════════════════════════════════════
+local Stats = {
+	fps = 0, ping = "-- ms", sessionTime = "00:00:00",
+	moneyCurrent = 0, sessionMoney = 0, profitPerMin = 0,
+	deliveries = 0, raceWins = 0, raceLosses = 0, kmDriven = 0,
+	vehicleSpeed = "0 km/h", vehicleMileage = "0 km",
+	vehiclePower = "0 HP", vehicleAcceleration = "--",
+	vehicleTraction = "--", carInfo = "Nenhum veículo detectado.",
+	raceTime = "--:--.---", racePosition = "#--",
+	bestRaceTime = "--:--.---",
+	raceHistory = "Nenhuma corrida registrada.",
+	playersOnline = 0, serverTime = "--:--:--",
+	serverInfo = "", speedLimitDisplay = "OFF",
+	driftStatus = "OFF", nitroStatus = "OFF",
+}
 
-local function create(class, props, kids)
+--// ══════════════════════════════════════
+--// FUNÇÕES UTILITÁRIAS
+--// ══════════════════════════════════════
+
+local function new(class, props, children)
 	local obj = Instance.new(class)
 	for k, v in pairs(props or {}) do
-		if k ~= "Parent" then
-			obj[k] = v
-		end
+		if k ~= "Parent" then obj[k] = v end
 	end
-	for _, child in ipairs(kids or {}) do
-		child.Parent = obj
-	end
-	if props and props.Parent then
-		obj.Parent = props.Parent
-	end
+	for _, c in ipairs(children or {}) do c.Parent = obj end
+	if props and props.Parent then obj.Parent = props.Parent end
 	return obj
 end
 
-local function corner(obj, r)
-	return create("UICorner", {CornerRadius = UDim.new(0, r or 12), Parent = obj})
+local function addCorner(obj, r)
+	new("UICorner", {CornerRadius = UDim.new(0, r or 12), Parent = obj})
 end
 
-local function addStroke(obj, color, trans, thick)
-	return create("UIStroke", {
-		Color = color or C.Accent,
+local function addStroke(obj, col, trans, thick)
+	return new("UIStroke", {
+		Color = col or Color.Red,
 		Transparency = trans or 0.5,
 		Thickness = thick or 1,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
@@ -126,993 +119,863 @@ local function addStroke(obj, color, trans, thick)
 	})
 end
 
-local function pad(obj, px)
-	return create("UIPadding", {
-		PaddingTop = UDim.new(0, px),
-		PaddingBottom = UDim.new(0, px),
-		PaddingLeft = UDim.new(0, px),
-		PaddingRight = UDim.new(0, px),
+local function addPadding(obj, px)
+	new("UIPadding", {
+		PaddingTop = UDim.new(0, px), PaddingBottom = UDim.new(0, px),
+		PaddingLeft = UDim.new(0, px), PaddingRight = UDim.new(0, px),
 		Parent = obj,
 	})
 end
 
-local function tw(obj, props, dur, style, dir)
-	local info = TweenInfo.new(dur or 0.2, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out)
-	local t = TweenService:Create(obj, info, props)
+local function animate(obj, props, dur)
+	local t = TweenService:Create(obj,
+		TweenInfo.new(dur or 0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+		props
+	)
 	t:Play()
 	return t
 end
 
-local function clamp(n, a, b) return math.max(a, math.min(b, n)) end
+local function clampN(n, a, b) return math.max(a, math.min(b, n)) end
 
-local function formatNum(n)
+local function fmtNum(n)
 	n = math.floor(tonumber(n) or 0)
-	local s = tostring(n)
-	local result = ""
-	local count = 0
-	for i = #s, 1, -1 do
-		count = count + 1
-		result = s:sub(i, i) .. result
-		if count % 3 == 0 and i > 1 then
-			result = "." .. result
-		end
-	end
-	return result
+	local s, k = tostring(n), 1
+	while k > 0 do s, k = s:gsub("^(-?%d+)(%d%d%d)", "%1.%2") end
+	return s
 end
 
-local function formatMoney(n) return "$ " .. formatNum(n) end
+local function fmtMoney(n) return "$ " .. fmtNum(n) end
 
-local function formatTime(sec)
+local function fmtTime(sec)
 	sec = math.max(0, math.floor(sec))
-	return string.format("%02d:%02d:%02d", math.floor(sec/3600), math.floor(sec%3600/60), sec%60)
+	return string.format("%02d:%02d:%02d", math.floor(sec / 3600), math.floor(sec % 3600 / 60), sec % 60)
 end
 
-local function setStat(key, value)
-	State.Stats[key] = value
-	for _, b in ipairs(StatBindings[key] or {}) do
-		pcall(function()
-			b.label.Text = b.fmt and b.fmt(value) or tostring(value)
-		end)
+local function setStat(key, val)
+	Stats[key] = val
+	for _, b in ipairs(StatLabels[key] or {}) do
+		pcall(function() b.label.Text = b.fmt and b.fmt(val) or tostring(val) end)
 	end
-	for _, lbl in ipairs(TextBindings[key] or {}) do
-		pcall(function() lbl.Text = tostring(value) end)
+	for _, lbl in ipairs(TextLabels[key] or {}) do
+		pcall(function() lbl.Text = tostring(val) end)
 	end
 end
 
 local function bindStat(key, label, fmt)
-	StatBindings[key] = StatBindings[key] or {}
-	table.insert(StatBindings[key], {label = label, fmt = fmt})
-	label.Text = fmt and fmt(State.Stats[key]) or tostring(State.Stats[key])
+	StatLabels[key] = StatLabels[key] or {}
+	table.insert(StatLabels[key], {label = label, fmt = fmt})
+	label.Text = fmt and fmt(Stats[key]) or tostring(Stats[key])
 end
 
 local function bindText(key, label)
-	TextBindings[key] = TextBindings[key] or {}
-	table.insert(TextBindings[key], label)
-	label.Text = tostring(State.Stats[key] or "")
+	TextLabels[key] = TextLabels[key] or {}
+	table.insert(TextLabels[key], label)
+	label.Text = tostring(Stats[key] or "")
 end
 
--- ════════════════════════════════════════
--- LIMPAR GUI ANTERIOR
--- ════════════════════════════════════════
+local function addHover(btn)
+	local sc = new("UIScale", {Scale = 1, Parent = btn})
+	btn.MouseEnter:Connect(function() animate(sc, {Scale = 1.03}, 0.1) end)
+	btn.MouseLeave:Connect(function() animate(sc, {Scale = 1}, 0.1) end)
+end
 
-local pg = Player:WaitForChild("PlayerGui")
-local oldGui = pg:FindFirstChild("RedarelhosHub")
-if oldGui then oldGui:Destroy() end
-local oldBlur = Lighting:FindFirstChild("RHBlur")
-if oldBlur then oldBlur:Destroy() end
+--// ══════════════════════════════════════
+--// SCREENGUI
+--// ══════════════════════════════════════
 
--- ════════════════════════════════════════
--- SCREENGUI
--- ════════════════════════════════════════
-
-local gui = create("ScreenGui", {
+local ScreenGui = new("ScreenGui", {
 	Name = "RedarelhosHub",
 	ResetOnSpawn = false,
 	IgnoreGuiInset = true,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 	DisplayOrder = 999,
-	Parent = pg,
+	Parent = PlayerGui,
 })
 
-local blur = create("BlurEffect", {
+local BlurEffect = new("BlurEffect", {
 	Name = "RHBlur",
 	Size = 0,
 	Parent = Lighting,
 })
 
--- ════════════════════════════════════════
--- NOTIFICAÇÕES
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// BOTÃO FLUTUANTE (SEMPRE VISÍVEL)
+--// ══════════════════════════════════════
 
-local notifHolder = create("Frame", {
-	Name = "Notifs",
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -20, 0, 20),
-	Size = UDim2.new(0, 340, 1, -40),
-	BackgroundTransparency = 1,
-	Parent = gui,
+local floatBtn = new("TextButton", {
+	Name = "FloatBtn",
+	AnchorPoint = Vector2.new(0, 0.5),
+	Position = UDim2.new(0, 14, 0.5, 0),
+	Size = UDim2.fromOffset(48, 48),
+	BackgroundColor3 = Color.Red,
+	Text = "RH",
+	TextColor3 = Color.White,
+	TextSize = 16,
+	Font = Enum.Font.GothamBold,
+	AutoButtonColor = false,
+	ZIndex = 999,
+	Parent = ScreenGui,
 })
-create("UIListLayout", {
-	HorizontalAlignment = Enum.HorizontalAlignment.Right,
+addCorner(floatBtn, 14)
+addStroke(floatBtn, Color.RedGlow, 0.1, 2)
+addHover(floatBtn)
+
+--// ══════════════════════════════════════
+--// NOTIFICAÇÕES
+--// ══════════════════════════════════════
+
+local notifBox = new("Frame", {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -16, 0, 16),
+	Size = UDim2.new(0, 330, 1, -32),
+	BackgroundTransparency = 1,
+	ZIndex = 900,
+	Parent = ScreenGui,
+})
+new("UIListLayout", {
 	VerticalAlignment = Enum.VerticalAlignment.Top,
-	Padding = UDim.new(0, 10),
-	Parent = notifHolder,
+	Padding = UDim.new(0, 8),
+	Parent = notifBox,
 })
 
 local function notify(title, body, kind)
-	local col = C.Accent
-	if kind == "success" then col = C.Green
-	elseif kind == "warning" then col = C.Yellow
-	elseif kind == "error" then col = C.Red end
+	local col = Color.Red
+	if kind == "success" then col = Color.Green
+	elseif kind == "warning" then col = Color.Yellow
+	elseif kind == "error" then col = Color.ErrRed end
 
-	local card = create("Frame", {
+	local card = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
-		BackgroundColor3 = C.BG2,
-		BackgroundTransparency = 0.06,
+		BackgroundColor3 = Color.Panel,
+		BackgroundTransparency = 0.04,
 		ClipsDescendants = true,
-		Parent = notifHolder,
+		ZIndex = 901,
+		Parent = notifBox,
 	})
-	corner(card, 14)
-	addStroke(card, col, 0.2, 1.2)
+	addCorner(card, 12)
+	addStroke(card, col, 0.15, 1.2)
 
-	create("Frame", {
+	new("Frame", {
 		Size = UDim2.new(0, 4, 1, 0),
 		BackgroundColor3 = col,
 		BorderSizePixel = 0,
+		ZIndex = 902,
 		Parent = card,
 	})
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(18, 12),
-		Size = UDim2.new(1, -30, 0, 18),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(16, 10),
+		Size = UDim2.new(1, -24, 0, 18),
 		BackgroundTransparency = 1,
 		Text = title or "",
-		TextColor3 = C.White,
+		TextColor3 = Color.White,
 		TextSize = 14,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 902,
 		Parent = card,
 	})
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(18, 32),
-		Size = UDim2.new(1, -30, 0, 30),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(16, 30),
+		Size = UDim2.new(1, -24, 0, 30),
 		BackgroundTransparency = 1,
 		Text = body or "",
-		TextColor3 = C.TextSub,
+		TextColor3 = Color.SubText,
 		TextWrapped = true,
 		TextSize = 12,
 		Font = Enum.Font.GothamMedium,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
+		ZIndex = 902,
 		Parent = card,
 	})
 
-	tw(card, {Size = UDim2.new(1, 0, 0, 72)}, 0.25)
+	animate(card, {Size = UDim2.new(1, 0, 0, 68)}, 0.22)
 
 	task.delay(4, function()
-		if card and card.Parent then
-			tw(card, {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1}, 0.2)
+		pcall(function()
+			animate(card, {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1}, 0.2)
 			task.wait(0.25)
-			pcall(function() card:Destroy() end)
-		end
+			card:Destroy()
+		end)
 	end)
 end
 
--- ════════════════════════════════════════
--- TOOLTIP
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// TOOLTIP
+--// ══════════════════════════════════════
 
-local tooltipLabel = create("TextLabel", {
-	Name = "Tooltip",
+local tipLabel = new("TextLabel", {
 	Visible = false,
 	AutomaticSize = Enum.AutomaticSize.XY,
-	BackgroundColor3 = C.BG2,
-	BackgroundTransparency = 0.08,
-	TextColor3 = C.White,
+	BackgroundColor3 = Color.Panel,
+	BackgroundTransparency = 0.06,
+	TextColor3 = Color.White,
 	TextSize = 12,
 	Font = Enum.Font.GothamMedium,
 	TextWrapped = true,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 999,
-	Parent = gui,
+	ZIndex = 950,
+	Parent = ScreenGui,
 })
-pad(tooltipLabel, 10)
-corner(tooltipLabel, 10)
-addStroke(tooltipLabel, C.Accent, 0.3, 1)
+addPadding(tipLabel, 8)
+addCorner(tipLabel, 8)
+addStroke(tipLabel, Color.Red, 0.3, 1)
 
-local function attachTooltip(obj, text)
+local function setTooltip(obj, text)
 	if not text or text == "" then return end
-	obj.MouseEnter:Connect(function()
-		tooltipLabel.Text = text
-		tooltipLabel.Visible = true
-	end)
-	obj.MouseLeave:Connect(function()
-		tooltipLabel.Visible = false
-	end)
+	obj.MouseEnter:Connect(function() tipLabel.Text = text; tipLabel.Visible = true end)
+	obj.MouseLeave:Connect(function() tipLabel.Visible = false end)
 end
 
 UserInputService.InputChanged:Connect(function(input)
-	if tooltipLabel.Visible and input.UserInputType == Enum.UserInputType.MouseMovement then
-		tooltipLabel.Position = UDim2.fromOffset(input.Position.X + 16, input.Position.Y + 16)
+	if tipLabel.Visible and input.UserInputType == Enum.UserInputType.MouseMovement then
+		tipLabel.Position = UDim2.fromOffset(input.Position.X + 14, input.Position.Y + 14)
 	end
 end)
 
--- ════════════════════════════════════════
--- HOVER EFFECT
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// JANELA PRINCIPAL
+--// ══════════════════════════════════════
 
-local function addHover(btn, scaleAmt)
-	local s = create("UIScale", {Scale = 1, Parent = btn})
-	btn.MouseEnter:Connect(function() tw(s, {Scale = scaleAmt or 1.025}, 0.12) end)
-	btn.MouseLeave:Connect(function() tw(s, {Scale = 1}, 0.12) end)
-end
-
--- ════════════════════════════════════════
--- LOADING SCREEN
--- ════════════════════════════════════════
-
-local loadScreen = create("Frame", {
-	Name = "Loading",
-	Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = C.Black,
-	BackgroundTransparency = 0.08,
-	ZIndex = 100,
-	Parent = gui,
-})
-
-local loadCard = create("Frame", {
+local Window = new("Frame", {
+	Name = "Window",
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(440, 200),
-	BackgroundColor3 = C.BG2,
-	BackgroundTransparency = 0.06,
-	ZIndex = 101,
-	Parent = loadScreen,
-})
-corner(loadCard, 22)
-addStroke(loadCard, C.Accent, 0.15, 1.5)
-
--- Logo
-local loadLogo = create("Frame", {
-	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 18),
-	Size = UDim2.fromOffset(60, 60),
-	BackgroundColor3 = C.BG4,
-	BackgroundTransparency = 0.05,
-	ZIndex = 102,
-	Parent = loadCard,
-})
-corner(loadLogo, 16)
-addStroke(loadLogo, C.Accent, 0.08, 1.6)
-
-create("TextLabel", {
-	BackgroundTransparency = 1,
-	Size = UDim2.fromScale(1, 1),
-	Text = "RH",
-	TextColor3 = C.Accent,
-	TextSize = 22,
-	Font = Enum.Font.GothamBold,
-	ZIndex = 103,
-	Parent = loadLogo,
-})
-
-create("TextLabel", {
-	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 88),
-	Size = UDim2.fromOffset(380, 30),
-	BackgroundTransparency = 1,
-	Text = "REDARELHOS HUB",
-	TextColor3 = C.White,
-	TextSize = 28,
-	Font = Enum.Font.GothamBold,
-	ZIndex = 102,
-	Parent = loadCard,
-})
-
-create("TextLabel", {
-	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 120),
-	Size = UDim2.fromOffset(380, 20),
-	BackgroundTransparency = 1,
-	Text = "Carregando interface premium...",
-	TextColor3 = C.TextSub,
-	TextSize = 13,
-	Font = Enum.Font.GothamMedium,
-	ZIndex = 102,
-	Parent = loadCard,
-})
-
-local loadTrack = create("Frame", {
-	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 155),
-	Size = UDim2.fromOffset(340, 10),
-	BackgroundColor3 = C.DarkGray,
-	BackgroundTransparency = 0.3,
-	ZIndex = 102,
-	Parent = loadCard,
-})
-corner(loadTrack, 999)
-
-local loadFill = create("Frame", {
-	Size = UDim2.new(0, 0, 1, 0),
-	BackgroundColor3 = C.Accent,
-	ZIndex = 103,
-	Parent = loadTrack,
-})
-corner(loadFill, 999)
-
--- ════════════════════════════════════════
--- JANELA PRINCIPAL
--- ════════════════════════════════════════
-
-local cam = workspace.CurrentCamera
-local vp = cam and cam.ViewportSize or Vector2.new(1600, 900)
-local W = clamp(math.floor(vp.X * 0.72), 860, 1280)
-local H = clamp(math.floor(vp.Y * 0.74), 560, 760)
-
-local windowRoot = create("Frame", {
-	Name = "WindowRoot",
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(W, H),
+	Size = UDim2.fromOffset(960, 620),
 	BackgroundTransparency = 1,
 	Visible = false,
-	Parent = gui,
+	ZIndex = 10,
+	Parent = ScreenGui,
 })
+new("UISizeConstraint", {MinSize = Vector2.new(820, 500), MaxSize = Vector2.new(1400, 850), Parent = Window})
 
-create("UISizeConstraint", {
-	MinSize = Vector2.new(820, 520),
-	MaxSize = Vector2.new(1500, 900),
-	Parent = windowRoot,
-})
-
-local openScale = create("UIScale", {Scale = 0.92, Parent = windowRoot})
+local WinScale = new("UIScale", {Scale = 0.9, Parent = Window})
 
 -- Sombra
-local shadowFrame = create("Frame", {
+local Shadow = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.new(0.5, 0, 0.5, 6),
-	Size = UDim2.new(1, 10, 1, 10),
-	BackgroundColor3 = C.Black,
-	BackgroundTransparency = 0.5,
-	BorderSizePixel = 0,
-	ZIndex = 0,
-	Parent = windowRoot,
+	Position = UDim2.new(0.5, 0, 0.5, 5),
+	Size = UDim2.new(1, 8, 1, 8),
+	BackgroundColor3 = Color.Black,
+	BackgroundTransparency = 0.45,
+	ZIndex = 9,
+	Parent = Window,
 })
-corner(shadowFrame, 26)
+addCorner(Shadow, 24)
 
--- Fundo principal
-local mainFrame = create("Frame", {
-	Name = "Main",
+-- Main
+local Main = new("Frame", {
 	Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = C.BG1,
-	BackgroundTransparency = 0.04,
+	BackgroundColor3 = Color.BG,
+	BackgroundTransparency = 0.02,
 	ClipsDescendants = true,
-	Parent = windowRoot,
+	ZIndex = 11,
+	Parent = Window,
 })
-corner(mainFrame, 22)
-addStroke(mainFrame, C.Accent, 0.25, 1.5)
+addCorner(Main, 20)
+addStroke(Main, Color.Red, 0.2, 1.5)
 
 -- Partículas
-for i = 1, 20 do
-	local dot = create("Frame", {
+for i = 1, 16 do
+	local dot = new("Frame", {
 		Size = UDim2.fromOffset(math.random(2, 4), math.random(2, 4)),
-		Position = UDim2.new(math.random(), 0, math.random(), 0),
-		BackgroundColor3 = C.Accent,
+		Position = UDim2.new(math.random() * 0.95, 0, math.random() * 0.95, 0),
+		BackgroundColor3 = Color.Red,
 		BackgroundTransparency = 0.88,
 		BorderSizePixel = 0,
-		ZIndex = 1,
-		Parent = mainFrame,
+		ZIndex = 12,
+		Parent = Main,
 	})
-	corner(dot, 999)
+	addCorner(dot, 999)
 	task.spawn(function()
 		while dot and dot.Parent do
-			tw(dot, {
-				Position = UDim2.new(math.random(), 0, math.random(), 0),
-				BackgroundTransparency = 0.82 + math.random() * 0.14,
-			}, 5 + math.random() * 5)
-			task.wait(4 + math.random() * 4)
+			animate(dot, {
+				Position = UDim2.new(math.random() * 0.95, 0, math.random() * 0.95, 0),
+				BackgroundTransparency = 0.84 + math.random() * 0.12,
+			}, 6 + math.random() * 5)
+			task.wait(5 + math.random() * 4)
 		end
 	end)
 end
 
--- ════════════════════════════════════════
--- HEADER
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// HEADER
+--// ══════════════════════════════════════
 
-local headerFrame = create("Frame", {
-	Name = "Header",
-	Size = UDim2.new(1, 0, 0, 72),
-	BackgroundColor3 = C.BG2,
-	BackgroundTransparency = 0.04,
-	ZIndex = 10,
-	Parent = mainFrame,
+local Header = new("Frame", {
+	Size = UDim2.new(1, 0, 0, 68),
+	BackgroundColor3 = Color.Panel,
+	BackgroundTransparency = 0.02,
+	ZIndex = 20,
+	Parent = Main,
 })
 
--- Logo do header
-local hLogo = create("Frame", {
-	Position = UDim2.fromOffset(16, 13),
-	Size = UDim2.fromOffset(46, 46),
-	BackgroundColor3 = C.BG4,
-	BackgroundTransparency = 0.04,
-	ZIndex = 11,
-	Parent = headerFrame,
+-- Logo
+local LogoBox = new("Frame", {
+	Position = UDim2.fromOffset(14, 11),
+	Size = UDim2.fromOffset(44, 44),
+	BackgroundColor3 = Color.Red,
+	ZIndex = 21,
+	Parent = Header,
 })
-corner(hLogo, 14)
-addStroke(hLogo, C.Accent, 0.08, 1.5)
+addCorner(LogoBox, 13)
+addStroke(LogoBox, Color.RedGlow, 0.05, 1.5)
 
-create("TextLabel", {
+new("TextLabel", {
 	BackgroundTransparency = 1,
 	Size = UDim2.fromScale(1, 1),
 	Text = "RH",
-	TextColor3 = C.Accent,
+	TextColor3 = Color.White,
 	TextSize = 18,
 	Font = Enum.Font.GothamBold,
-	ZIndex = 12,
-	Parent = hLogo,
+	ZIndex = 22,
+	Parent = LogoBox,
 })
 
 -- Título
-create("TextLabel", {
-	Position = UDim2.fromOffset(74, 10),
-	Size = UDim2.fromOffset(300, 26),
+new("TextLabel", {
+	Position = UDim2.fromOffset(70, 8),
+	Size = UDim2.fromOffset(280, 26),
 	BackgroundTransparency = 1,
 	Text = "REDARELHOS HUB",
-	TextColor3 = C.White,
-	TextSize = 24,
+	TextColor3 = Color.White,
+	TextSize = 22,
 	Font = Enum.Font.GothamBold,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 11,
-	Parent = headerFrame,
+	ZIndex = 21,
+	Parent = Header,
 })
 
-create("TextLabel", {
-	Position = UDim2.fromOffset(74, 38),
-	Size = UDim2.fromOffset(340, 18),
+new("TextLabel", {
+	Position = UDim2.fromOffset(70, 36),
+	Size = UDim2.fromOffset(320, 16),
 	BackgroundTransparency = 1,
-	Text = "Car Dealership Tycoon • v2.0 • Premium",
-	TextColor3 = C.TextDim,
-	TextSize = 12,
+	Text = "Car Dealership Tycoon • v3.0",
+	TextColor3 = Color.DimText,
+	TextSize = 11,
 	Font = Enum.Font.GothamMedium,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 11,
-	Parent = headerFrame,
+	ZIndex = 21,
+	Parent = Header,
 })
 
--- Pills do header
-local function makeHPill(parent, text, width)
-	local p = create("Frame", {
-		Size = UDim2.fromOffset(width, 30),
-		BackgroundColor3 = C.BG4,
-		BackgroundTransparency = 0.08,
-		ZIndex = 11,
+-- Header pills
+local function headerPill(parent, text, w)
+	local p = new("Frame", {
+		Size = UDim2.fromOffset(w, 28),
+		BackgroundColor3 = Color.Elevated,
+		BackgroundTransparency = 0.06,
+		ZIndex = 21,
 		Parent = parent,
 	})
-	corner(p, 10)
-	addStroke(p, C.DarkGray, 0.4, 1)
-	local l = create("TextLabel", {
+	addCorner(p, 8)
+	addStroke(p, Color.Gray, 0.45, 1)
+	local l = new("TextLabel", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromScale(1, 1),
 		Text = text,
-		TextColor3 = C.White,
-		TextSize = 12,
+		TextColor3 = Color.White,
+		TextSize = 11,
 		Font = Enum.Font.GothamMedium,
-		ZIndex = 12,
+		ZIndex = 22,
 		Parent = p,
 	})
 	return p, l
 end
 
-local hPillStrip = create("Frame", {
+local PillStrip = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -110, 0.5, 0),
-	Size = UDim2.fromOffset(460, 36),
+	Position = UDim2.new(1, -105, 0.5, 0),
+	Size = UDim2.fromOffset(420, 32),
 	BackgroundTransparency = 1,
-	ZIndex = 11,
-	Parent = headerFrame,
+	ZIndex = 21,
+	Parent = Header,
 })
-create("UIListLayout", {
+new("UIListLayout", {
 	FillDirection = Enum.FillDirection.Horizontal,
 	HorizontalAlignment = Enum.HorizontalAlignment.Right,
 	VerticalAlignment = Enum.VerticalAlignment.Center,
-	Padding = UDim.new(0, 8),
-	Parent = hPillStrip,
+	Padding = UDim.new(0, 6),
+	Parent = PillStrip,
 })
 
-local _, versionLabel = makeHPill(hPillStrip, "v2.0", 60)
-local _, sessionLabel = makeHPill(hPillStrip, "00:00:00", 88)
-local _, fpsLabel = makeHPill(hPillStrip, "FPS: 0", 76)
-local _, playerLabel = makeHPill(hPillStrip, Player.Name, 130)
+local _, VersionPill = headerPill(PillStrip, "v3.0", 52)
+local _, SessionPill = headerPill(PillStrip, "00:00:00", 80)
+local _, FpsPill = headerPill(PillStrip, "FPS: 0", 68)
+local _, PlayerPill = headerPill(PillStrip, Player.Name, 120)
 
--- Botões fechar/minimizar
-local hBtnHolder = create("Frame", {
+-- Header buttons
+local BtnHolder = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -16, 0.5, 0),
-	Size = UDim2.fromOffset(86, 36),
+	Position = UDim2.new(1, -14, 0.5, 0),
+	Size = UDim2.fromOffset(84, 34),
 	BackgroundTransparency = 1,
-	ZIndex = 11,
-	Parent = headerFrame,
+	ZIndex = 21,
+	Parent = Header,
 })
-create("UIListLayout", {
+new("UIListLayout", {
 	FillDirection = Enum.FillDirection.Horizontal,
 	HorizontalAlignment = Enum.HorizontalAlignment.Right,
-	Padding = UDim.new(0, 8),
-	Parent = hBtnHolder,
+	Padding = UDim.new(0, 6),
+	Parent = BtnHolder,
 })
 
-local function makeHeaderBtn(text, color)
-	local btn = create("TextButton", {
-		Size = UDim2.fromOffset(38, 34),
-		BackgroundColor3 = C.BG4,
-		BackgroundTransparency = 0.08,
+local function hdrBtn(text, col)
+	local b = new("TextButton", {
+		Size = UDim2.fromOffset(36, 32),
+		BackgroundColor3 = Color.Elevated,
+		BackgroundTransparency = 0.06,
 		Text = text,
-		TextColor3 = color or C.White,
-		TextSize = 18,
+		TextColor3 = col or Color.White,
+		TextSize = 16,
 		Font = Enum.Font.GothamBold,
 		AutoButtonColor = false,
-		ZIndex = 12,
-		Parent = hBtnHolder,
+		ZIndex = 22,
+		Parent = BtnHolder,
 	})
-	corner(btn, 10)
-	addStroke(btn, color or C.DarkGray, 0.4, 1)
-	addHover(btn)
-	return btn
+	addCorner(b, 9)
+	addStroke(b, col or Color.Gray, 0.4, 1)
+	addHover(b)
+	return b
 end
 
-local minimizeBtn = makeHeaderBtn("—", C.White)
-local closeBtn = makeHeaderBtn("✕", C.Red)
+local MinBtn = hdrBtn("—", Color.White)
+local CloseBtn = hdrBtn("✕", Color.ErrRed)
 
--- ════════════════════════════════════════
--- BODY (SIDEBAR + CONTENT)
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// BODY
+--// ══════════════════════════════════════
 
-local bodyFrame = create("Frame", {
-	Name = "Body",
-	Position = UDim2.fromOffset(0, 72),
-	Size = UDim2.new(1, 0, 1, -72),
+local Body = new("Frame", {
+	Position = UDim2.fromOffset(0, 68),
+	Size = UDim2.new(1, 0, 1, -68),
 	BackgroundTransparency = 1,
-	ZIndex = 5,
-	Parent = mainFrame,
+	ZIndex = 15,
+	Parent = Main,
 })
 
 -- Sidebar
-local sidebarFrame = create("Frame", {
-	Position = UDim2.fromOffset(12, 10),
-	Size = UDim2.new(0, 220, 1, -20),
-	BackgroundColor3 = C.BG2,
-	BackgroundTransparency = 0.04,
-	ZIndex = 6,
-	Parent = bodyFrame,
+local Sidebar = new("Frame", {
+	Position = UDim2.fromOffset(10, 8),
+	Size = UDim2.new(0, 200, 1, -16),
+	BackgroundColor3 = Color.Panel,
+	BackgroundTransparency = 0.03,
+	ZIndex = 16,
+	Parent = Body,
 })
-corner(sidebarFrame, 16)
-addStroke(sidebarFrame, C.DarkGray, 0.45, 1)
+addCorner(Sidebar, 14)
+addStroke(Sidebar, Color.Gray, 0.45, 1)
 
 -- Pesquisa
-local searchWrap = create("Frame", {
-	Position = UDim2.fromOffset(12, 12),
-	Size = UDim2.new(1, -24, 0, 40),
-	BackgroundColor3 = C.BG4,
-	BackgroundTransparency = 0.06,
-	ZIndex = 7,
-	Parent = sidebarFrame,
+local SearchFrame = new("Frame", {
+	Position = UDim2.fromOffset(10, 10),
+	Size = UDim2.new(1, -20, 0, 36),
+	BackgroundColor3 = Color.Elevated,
+	BackgroundTransparency = 0.05,
+	ZIndex = 17,
+	Parent = Sidebar,
 })
-corner(searchWrap, 12)
-addStroke(searchWrap, C.DarkGray, 0.5, 1)
+addCorner(SearchFrame, 10)
+addStroke(SearchFrame, Color.Gray, 0.5, 1)
 
-create("TextLabel", {
-	Position = UDim2.fromOffset(12, 0),
-	Size = UDim2.fromOffset(20, 40),
+new("TextLabel", {
+	Position = UDim2.fromOffset(10, 0),
+	Size = UDim2.fromOffset(18, 36),
 	BackgroundTransparency = 1,
 	Text = "🔍",
-	TextColor3 = C.Accent,
-	TextSize = 14,
-	Font = Enum.Font.GothamBold,
-	ZIndex = 8,
-	Parent = searchWrap,
+	TextSize = 12,
+	ZIndex = 18,
+	Parent = SearchFrame,
 })
 
-local searchBox = create("TextBox", {
-	Position = UDim2.fromOffset(34, 0),
-	Size = UDim2.new(1, -44, 1, 0),
+local SearchInput = new("TextBox", {
+	Position = UDim2.fromOffset(30, 0),
+	Size = UDim2.new(1, -38, 1, 0),
 	BackgroundTransparency = 1,
 	PlaceholderText = "Pesquisar...",
 	Text = "",
-	TextColor3 = C.White,
-	PlaceholderColor3 = C.TextDim,
-	TextSize = 13,
+	TextColor3 = Color.White,
+	PlaceholderColor3 = Color.DimText,
+	TextSize = 12,
 	Font = Enum.Font.GothamMedium,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ClearTextOnFocus = false,
-	ZIndex = 8,
-	Parent = searchWrap,
+	ZIndex = 18,
+	Parent = SearchFrame,
 })
 
--- Tabs scroll
-local tabScroll = create("ScrollingFrame", {
-	Position = UDim2.fromOffset(8, 62),
-	Size = UDim2.new(1, -16, 1, -72),
+-- Tab list
+local TabList = new("ScrollingFrame", {
+	Position = UDim2.fromOffset(6, 54),
+	Size = UDim2.new(1, -12, 1, -62),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	CanvasSize = UDim2.new(),
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
-	ScrollBarThickness = 4,
-	ScrollBarImageColor3 = C.Accent,
-	ZIndex = 7,
-	Parent = sidebarFrame,
+	ScrollBarThickness = 3,
+	ScrollBarImageColor3 = Color.Red,
+	ZIndex = 17,
+	Parent = Sidebar,
 })
-create("UIListLayout", {Padding = UDim.new(0, 7), Parent = tabScroll})
+new("UIListLayout", {Padding = UDim.new(0, 6), Parent = TabList})
 
--- Content
-local contentFrame = create("Frame", {
-	Position = UDim2.new(0, 244, 0, 10),
-	Size = UDim2.new(1, -256, 1, -20),
-	BackgroundColor3 = C.BG2,
-	BackgroundTransparency = 0.04,
-	ZIndex = 6,
-	Parent = bodyFrame,
+-- Content area
+local Content = new("Frame", {
+	Position = UDim2.new(0, 222, 0, 8),
+	Size = UDim2.new(1, -232, 1, -16),
+	BackgroundColor3 = Color.Panel,
+	BackgroundTransparency = 0.03,
+	ZIndex = 16,
+	Parent = Body,
 })
-corner(contentFrame, 16)
-addStroke(contentFrame, C.DarkGray, 0.45, 1)
+addCorner(Content, 14)
+addStroke(Content, Color.Gray, 0.45, 1)
 
 -- Content header
-local contentHeaderFrame = create("Frame", {
-	Position = UDim2.fromOffset(14, 12),
-	Size = UDim2.new(1, -28, 0, 48),
-	BackgroundColor3 = C.BG4,
-	BackgroundTransparency = 0.06,
-	ZIndex = 7,
-	Parent = contentFrame,
+local ContentHdr = new("Frame", {
+	Position = UDim2.fromOffset(12, 10),
+	Size = UDim2.new(1, -24, 0, 44),
+	BackgroundColor3 = Color.Elevated,
+	BackgroundTransparency = 0.05,
+	ZIndex = 17,
+	Parent = Content,
 })
-corner(contentHeaderFrame, 12)
-addStroke(contentHeaderFrame, C.DarkGray, 0.5, 1)
+addCorner(ContentHdr, 10)
+addStroke(ContentHdr, Color.Gray, 0.5, 1)
 
-local pageTitle = create("TextLabel", {
+local PageTitleLabel = new("TextLabel", {
 	Position = UDim2.fromOffset(14, 0),
-	Size = UDim2.new(0.5, 0, 1, 0),
+	Size = UDim2.new(0.6, 0, 1, 0),
 	BackgroundTransparency = 1,
-	Text = "Farming",
-	TextColor3 = C.White,
-	TextSize = 18,
+	Text = "",
+	TextColor3 = Color.White,
+	TextSize = 17,
 	Font = Enum.Font.GothamBold,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 8,
-	Parent = contentHeaderFrame,
+	ZIndex = 18,
+	Parent = ContentHdr,
 })
 
-create("TextLabel", {
+new("TextLabel", {
 	AnchorPoint = Vector2.new(1, 0.5),
 	Position = UDim2.new(1, -14, 0.5, 0),
-	Size = UDim2.fromOffset(280, 18),
+	Size = UDim2.fromOffset(220, 16),
 	BackgroundTransparency = 1,
-	Text = "Premium • Futurista • Responsivo",
-	TextColor3 = C.TextDim,
-	TextSize = 11,
+	Text = "Redarelhos Hub Premium",
+	TextColor3 = Color.DimText,
+	TextSize = 10,
 	Font = Enum.Font.GothamMedium,
 	TextXAlignment = Enum.TextXAlignment.Right,
-	ZIndex = 8,
-	Parent = contentHeaderFrame,
+	ZIndex = 18,
+	Parent = ContentHdr,
 })
 
--- Pages holder
-local pagesHolder = create("Frame", {
-	Position = UDim2.fromOffset(14, 72),
-	Size = UDim2.new(1, -28, 1, -128),
+-- Page container
+local PageContainer = new("Frame", {
+	Position = UDim2.fromOffset(12, 64),
+	Size = UDim2.new(1, -24, 1, -114),
 	BackgroundTransparency = 1,
-	ZIndex = 7,
-	Parent = contentFrame,
+	ZIndex = 17,
+	Parent = Content,
 })
 
 -- Status bar
-local statusBar = create("Frame", {
+local StatusBar = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1),
-	Position = UDim2.new(0.5, 0, 1, -12),
-	Size = UDim2.new(1, -28, 0, 38),
-	BackgroundColor3 = C.BG4,
-	BackgroundTransparency = 0.06,
-	ZIndex = 7,
-	Parent = contentFrame,
+	Position = UDim2.new(0.5, 0, 1, -10),
+	Size = UDim2.new(1, -24, 0, 36),
+	BackgroundColor3 = Color.Elevated,
+	BackgroundTransparency = 0.05,
+	ZIndex = 17,
+	Parent = Content,
 })
-corner(statusBar, 12)
-addStroke(statusBar, C.DarkGray, 0.5, 1)
+addCorner(StatusBar, 10)
+addStroke(StatusBar, Color.Gray, 0.5, 1)
 
-local statusText = create("TextLabel", {
-	Position = UDim2.fromOffset(14, 0),
-	Size = UDim2.new(0, 260, 1, 0),
+local StatusLabel = new("TextLabel", {
+	Position = UDim2.fromOffset(12, 0),
+	Size = UDim2.new(0.5, 0, 1, 0),
 	BackgroundTransparency = 1,
 	Text = "Pronto",
-	TextColor3 = C.White,
-	TextSize = 12,
+	TextColor3 = Color.White,
+	TextSize = 11,
 	Font = Enum.Font.GothamMedium,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 8,
-	Parent = statusBar,
+	ZIndex = 18,
+	Parent = StatusBar,
 })
 
-local progressTrack = create("Frame", {
+local ProgressTrack = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -14, 0.5, 0),
-	Size = UDim2.fromOffset(240, 8),
-	BackgroundColor3 = C.DarkGray,
+	Position = UDim2.new(1, -12, 0.5, 0),
+	Size = UDim2.fromOffset(200, 6),
+	BackgroundColor3 = Color.Gray,
 	BackgroundTransparency = 0.3,
-	ZIndex = 8,
-	Parent = statusBar,
+	ZIndex = 18,
+	Parent = StatusBar,
 })
-corner(progressTrack, 999)
+addCorner(ProgressTrack, 999)
 
-local progressFill = create("Frame", {
+local ProgressFill = new("Frame", {
 	Size = UDim2.new(0, 0, 1, 0),
-	BackgroundColor3 = C.Accent,
-	ZIndex = 9,
-	Parent = progressTrack,
+	BackgroundColor3 = Color.Red,
+	ZIndex = 19,
+	Parent = ProgressTrack,
 })
-corner(progressFill, 999)
+addCorner(ProgressFill, 999)
 
--- Resize handle
-local resizeHandle = create("TextButton", {
+-- Resize
+local ResizeBtn = new("TextButton", {
 	AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, -6, 1, -4),
-	Size = UDim2.fromOffset(20, 20),
+	Position = UDim2.new(1, -5, 1, -3),
+	Size = UDim2.fromOffset(18, 18),
 	BackgroundTransparency = 1,
 	Text = "◢",
-	TextColor3 = C.Accent,
-	TextSize = 14,
+	TextColor3 = Color.Red,
+	TextSize = 12,
 	Font = Enum.Font.GothamBold,
 	AutoButtonColor = false,
-	ZIndex = 20,
-	Parent = mainFrame,
+	ZIndex = 30,
+	Parent = Main,
 })
 
--- ════════════════════════════════════════
--- COMPONENTES
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// COMPONENTES DE CONTEÚDO
+--// ══════════════════════════════════════
 
-local function makeCard(parent, h, autoY)
-	local card = create("Frame", {
-		Size = UDim2.new(1, 0, 0, h or 70),
+local function mkCard(parent, h, autoY)
+	local c = new("Frame", {
+		Size = UDim2.new(1, 0, 0, h or 64),
 		AutomaticSize = autoY and Enum.AutomaticSize.Y or Enum.AutomaticSize.None,
-		BackgroundColor3 = C.BG3,
-		BackgroundTransparency = 0.06,
-		ZIndex = 8,
+		BackgroundColor3 = Color.Card,
+		BackgroundTransparency = 0.04,
+		ZIndex = 20,
 		Parent = parent,
 	})
-	corner(card, 14)
-	addStroke(card, C.DarkGray, 0.55, 1)
-	table.insert(AllCards, card)
-	return card
+	addCorner(c, 12)
+	addStroke(c, Color.Gray, 0.55, 1)
+	return c
 end
 
-local function makeSection(parent, title)
-	local section = create("Frame", {
+local function mkSection(parent, title)
+	local sec = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
-		ZIndex = 8,
+		ZIndex = 20,
 		Parent = parent,
 	})
-	create("UIListLayout", {Padding = UDim.new(0, 7), Parent = section})
+	new("UIListLayout", {Padding = UDim.new(0, 6), Parent = sec})
 
-	local hdr = create("TextButton", {
-		Size = UDim2.new(1, 0, 0, 38),
-		BackgroundColor3 = C.BG4,
-		BackgroundTransparency = 0.06,
+	local hdr = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 34),
+		BackgroundColor3 = Color.Elevated,
+		BackgroundTransparency = 0.05,
 		Text = "",
 		AutoButtonColor = false,
-		ZIndex = 9,
-		Parent = section,
+		ZIndex = 21,
+		Parent = sec,
 	})
-	corner(hdr, 12)
-	addStroke(hdr, C.DarkGray, 0.5, 1)
+	addCorner(hdr, 10)
+	addStroke(hdr, Color.Gray, 0.5, 1)
 	addHover(hdr)
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 0),
-		Size = UDim2.new(1, -40, 1, 0),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(1, -36, 1, 0),
 		BackgroundTransparency = 1,
 		Text = title,
-		TextColor3 = C.White,
-		TextSize = 14,
+		TextColor3 = Color.White,
+		TextSize = 13,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 10,
+		ZIndex = 22,
 		Parent = hdr,
 	})
 
-	local chevron = create("TextLabel", {
+	local chev = new("TextLabel", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -12, 0.5, 0),
-		Size = UDim2.fromOffset(18, 18),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(14, 14),
 		BackgroundTransparency = 1,
 		Text = "▾",
-		TextColor3 = C.Accent,
-		TextSize = 14,
+		TextColor3 = Color.Red,
+		TextSize = 12,
 		Font = Enum.Font.GothamBold,
-		ZIndex = 10,
+		ZIndex = 22,
 		Parent = hdr,
 	})
 
-	local bodyF = create("Frame", {
+	local body = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
-		ZIndex = 8,
-		Parent = section,
+		ZIndex = 20,
+		Parent = sec,
 	})
-	create("UIListLayout", {Padding = UDim.new(0, 7), Parent = bodyF})
+	new("UIListLayout", {Padding = UDim.new(0, 6), Parent = body})
 
 	local collapsed = false
 	hdr.MouseButton1Click:Connect(function()
 		collapsed = not collapsed
-		bodyF.Visible = not collapsed
-		chevron.Text = collapsed and "▸" or "▾"
+		body.Visible = not collapsed
+		chev.Text = collapsed and "▸" or "▾"
 	end)
 
-	return {frame = section, body = bodyF, items = {}}
+	return sec, body
 end
 
-local function makeToggle(parent, item)
-	local card = makeCard(parent, 68)
-	card:SetAttribute("SearchText", ((item.label or "").." "..(item.desc or "")):lower())
+local function mkToggle(parent, item)
+	local card = mkCard(parent, 62)
+	card:SetAttribute("SearchKey", ((item.label or "") .. " " .. (item.desc or "")):lower())
+	table.insert(SearchCards, card)
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 10),
-		Size = UDim2.new(1, -100, 0, 20),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.new(1, -90, 0, 18),
 		BackgroundTransparency = 1,
 		Text = item.label,
-		TextColor3 = C.White,
-		TextSize = 14,
+		TextColor3 = Color.White,
+		TextSize = 13,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 32),
-		Size = UDim2.new(1, -100, 0, 22),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 28),
+		Size = UDim2.new(1, -90, 0, 20),
 		BackgroundTransparency = 1,
 		Text = item.desc or "",
-		TextColor3 = C.TextSub,
-		TextSize = 11,
+		TextColor3 = Color.SubText,
+		TextSize = 10,
 		Font = Enum.Font.GothamMedium,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	attachTooltip(card, item.desc)
+	setTooltip(card, item.desc)
 
-	local toggleBtn = create("TextButton", {
+	local tBtn = new("TextButton", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -14, 0.5, 0),
-		Size = UDim2.fromOffset(52, 28),
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(48, 26),
 		BackgroundTransparency = 1,
 		Text = "",
 		AutoButtonColor = false,
-		ZIndex = 10,
+		ZIndex = 22,
 		Parent = card,
 	})
-	addHover(toggleBtn)
 
-	local track = create("Frame", {
+	local track = new("Frame", {
 		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = C.DarkGray,
-		BackgroundTransparency = 0.1,
-		ZIndex = 11,
-		Parent = toggleBtn,
+		BackgroundColor3 = Color.Gray,
+		ZIndex = 23,
+		Parent = tBtn,
 	})
-	corner(track, 999)
-	addStroke(track, C.DarkGray, 0.4, 1)
+	addCorner(track, 999)
 
-	local knob = create("Frame", {
+	local knob = new("Frame", {
 		Position = UDim2.fromOffset(3, 3),
-		Size = UDim2.fromOffset(22, 22),
-		BackgroundColor3 = C.White,
-		ZIndex = 12,
+		Size = UDim2.fromOffset(20, 20),
+		BackgroundColor3 = Color.White,
+		ZIndex = 24,
 		Parent = track,
 	})
-	corner(knob, 999)
+	addCorner(knob, 999)
 
-	local enabled = item.default or false
+	local on = item.default or false
 
 	local function render()
-		if enabled then
-			tw(track, {BackgroundColor3 = C.Accent, BackgroundTransparency = 0}, 0.18)
-			tw(knob, {Position = UDim2.new(1, -25, 0, 3)}, 0.18)
+		if on then
+			animate(track, {BackgroundColor3 = Color.Red}, 0.15)
+			animate(knob, {Position = UDim2.new(1, -23, 0, 3)}, 0.15)
 		else
-			tw(track, {BackgroundColor3 = C.DarkGray, BackgroundTransparency = 0.1}, 0.18)
-			tw(knob, {Position = UDim2.fromOffset(3, 3)}, 0.18)
+			animate(track, {BackgroundColor3 = Color.Gray}, 0.15)
+			animate(knob, {Position = UDim2.fromOffset(3, 3)}, 0.15)
 		end
 	end
 
-	ToggleRenderers[item.key] = render
-
-	local function setValue(v, silent)
-		enabled = v
-		State.Toggles[item.key] = v
+	local function set(val, silent)
+		on = val
+		HubState.toggles[item.key] = val
 		render()
 		if not silent then
-			updateAutomationProgress()
-			local msg = enabled and "ativado" or "desativado"
-			notify("Toggle", item.label .. " " .. msg .. ".", enabled and "success" or "warning")
+			updateProgress()
+			if item.onToggle then item.onToggle(val) end
+			notify("Toggle", item.label .. (val and " ativado" or " desativado"), val and "success" or "warning")
 		end
 	end
 
-	ToggleSetters[item.key] = setValue
+	ToggleFuncs[item.key] = set
 
-	toggleBtn.MouseButton1Click:Connect(function()
-		setValue(not enabled, false)
+	tBtn.MouseButton1Click:Connect(function()
+		set(not on, false)
 	end)
 
-	setValue(enabled, true)
+	set(on, true)
 	return card
 end
 
-local function makeButton(parent, item)
-	local card = makeCard(parent, 68)
-	card:SetAttribute("SearchText", ((item.label or "").." "..(item.desc or "")):lower())
+local function mkButton(parent, item)
+	local card = mkCard(parent, 62)
+	card:SetAttribute("SearchKey", ((item.label or "") .. " " .. (item.desc or "")):lower())
+	table.insert(SearchCards, card)
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 10),
-		Size = UDim2.new(1, -160, 0, 20),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.new(1, -150, 0, 18),
 		BackgroundTransparency = 1,
 		Text = item.label,
-		TextColor3 = C.White,
-		TextSize = 14,
+		TextColor3 = Color.White,
+		TextSize = 13,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 32),
-		Size = UDim2.new(1, -160, 0, 22),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 28),
+		Size = UDim2.new(1, -150, 0, 20),
 		BackgroundTransparency = 1,
 		Text = item.desc or "",
-		TextColor3 = C.TextSub,
-		TextSize = 11,
+		TextColor3 = Color.SubText,
+		TextSize = 10,
 		Font = Enum.Font.GothamMedium,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	attachTooltip(card, item.desc)
+	setTooltip(card, item.desc)
 
-	local actionBtn = create("TextButton", {
+	local btn = new("TextButton", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -14, 0.5, 0),
-		Size = UDim2.fromOffset(130, 36),
-		BackgroundColor3 = C.Accent,
-		Text = item.buttonText or "Executar",
-		TextColor3 = C.White,
-		TextSize = 13,
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(120, 32),
+		BackgroundColor3 = Color.Red,
+		Text = item.btnText or "Executar",
+		TextColor3 = Color.White,
+		TextSize = 12,
 		Font = Enum.Font.GothamBold,
 		AutoButtonColor = false,
-		ZIndex = 10,
+		ZIndex = 22,
 		Parent = card,
 	})
-	corner(actionBtn, 10)
-	addStroke(actionBtn, C.AccentGlow, 0.15, 1)
-	addHover(actionBtn)
+	addCorner(btn, 8)
+	addStroke(btn, Color.RedGlow, 0.1, 1)
+	addHover(btn)
 
-	actionBtn.MouseButton1Click:Connect(function()
-		if item.action == "stopAll" then
-			for key in pairs(AutomationKeys) do
-				if ToggleSetters[key] then
-					ToggleSetters[key](false, true)
-				end
-			end
-			updateAutomationProgress()
-			notify("Automações", "Todas desativadas.", "warning")
-		elseif item.action == "copyJobId" then
-			if setclipboard then
-				pcall(setclipboard, game.JobId)
-			end
-			notify("Job ID", game.JobId, "info")
+	btn.MouseButton1Click:Connect(function()
+		if item.onClick then
+			item.onClick()
 		else
 			notify("Ação", item.label .. " executado.", "info")
 		end
@@ -1121,316 +984,442 @@ local function makeButton(parent, item)
 	return card
 end
 
-local function makeStatCard(parent, item)
-	local card = makeCard(parent, 56)
-	card:SetAttribute("SearchText", ((item.label or ""):lower()))
+local function mkStat(parent, item)
+	local card = mkCard(parent, 52)
+	card:SetAttribute("SearchKey", ((item.label or ""):lower()))
+	table.insert(SearchCards, card)
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 0),
-		Size = UDim2.new(1, -174, 1, 0),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(1, -162, 1, 0),
 		BackgroundTransparency = 1,
 		Text = item.label,
-		TextColor3 = C.White,
-		TextSize = 13,
+		TextColor3 = Color.White,
+		TextSize = 12,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	local pill = create("Frame", {
+	local pill = new("Frame", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -12, 0.5, 0),
-		Size = UDim2.fromOffset(150, 32),
-		BackgroundColor3 = C.BG4,
-		BackgroundTransparency = 0.06,
-		ZIndex = 9,
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(140, 28),
+		BackgroundColor3 = Color.Elevated,
+		BackgroundTransparency = 0.05,
+		ZIndex = 21,
 		Parent = card,
 	})
-	corner(pill, 10)
-	addStroke(pill, C.Accent, 0.35, 1)
+	addCorner(pill, 8)
+	addStroke(pill, Color.Red, 0.35, 1)
 
-	local valueLabel = create("TextLabel", {
+	local vLabel = new("TextLabel", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromScale(1, 1),
 		Text = "--",
-		TextColor3 = C.White,
-		TextSize = 12,
+		TextColor3 = Color.White,
+		TextSize = 11,
 		Font = Enum.Font.GothamBold,
-		ZIndex = 10,
+		ZIndex = 22,
 		Parent = pill,
 	})
 
-	bindStat(item.statKey, valueLabel, item.formatter)
-	attachTooltip(card, item.desc)
+	bindStat(item.statKey, vLabel, item.fmt)
 	return card
 end
 
-local function makeTextBlock(parent, item)
-	local card = makeCard(parent, nil, true)
-	card:SetAttribute("SearchText", ((item.label or ""):lower()))
-	pad(card, 14)
+local function mkTextBlock(parent, item)
+	local card = mkCard(parent, nil, true)
+	card:SetAttribute("SearchKey", ((item.label or ""):lower()))
+	table.insert(SearchCards, card)
+	addPadding(card, 12)
 
-	create("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 20),
+	new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 18),
 		BackgroundTransparency = 1,
 		Text = item.label,
-		TextColor3 = C.White,
-		TextSize = 13,
+		TextColor3 = Color.White,
+		TextSize = 12,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	local bodyLabel = create("TextLabel", {
-		Position = UDim2.fromOffset(0, 26),
-		Size = UDim2.new(1, 0, 0, 40),
+	local bl = new("TextLabel", {
+		Position = UDim2.fromOffset(0, 24),
+		Size = UDim2.new(1, 0, 0, 36),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
 		Text = "",
-		TextColor3 = C.TextSub,
+		TextColor3 = Color.SubText,
 		TextWrapped = true,
-		TextSize = 12,
-		Font = Enum.Font.GothamMedium,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		ZIndex = 9,
-		Parent = card,
-	})
-
-	bindText(item.statKey, bodyLabel)
-	return card
-end
-
-local function makeSlider(parent, item)
-	local card = makeCard(parent, 88)
-	card:SetAttribute("SearchText", ((item.label or ""):lower()))
-
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 8),
-		Size = UDim2.new(1, -100, 0, 18),
-		BackgroundTransparency = 1,
-		Text = item.label,
-		TextColor3 = C.White,
-		TextSize = 13,
-		Font = Enum.Font.GothamBold,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
-		Parent = card,
-	})
-
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 28),
-		Size = UDim2.new(1, -100, 0, 16),
-		BackgroundTransparency = 1,
-		Text = item.desc or "",
-		TextColor3 = C.TextDim,
 		TextSize = 11,
 		Font = Enum.Font.GothamMedium,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	local valueLabel = create("TextLabel", {
+	bindText(item.statKey, bl)
+	return card
+end
+
+local function mkSlider(parent, item)
+	local card = mkCard(parent, 82)
+	card:SetAttribute("SearchKey", ((item.label or ""):lower()))
+	table.insert(SearchCards, card)
+
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.new(1, -90, 0, 16),
+		BackgroundTransparency = 1,
+		Text = item.label,
+		TextColor3 = Color.White,
+		TextSize = 12,
+		Font = Enum.Font.GothamBold,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 21,
+		Parent = card,
+	})
+
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 26),
+		Size = UDim2.new(1, -90, 0, 14),
+		BackgroundTransparency = 1,
+		Text = item.desc or "",
+		TextColor3 = Color.DimText,
+		TextSize = 10,
+		Font = Enum.Font.GothamMedium,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 21,
+		Parent = card,
+	})
+
+	local vLabel = new("TextLabel", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -14, 0, 8),
-		Size = UDim2.fromOffset(70, 18),
+		Position = UDim2.new(1, -12, 0, 8),
+		Size = UDim2.fromOffset(60, 16),
 		BackgroundTransparency = 1,
 		Text = "",
-		TextColor3 = C.Accent,
-		TextSize = 13,
+		TextColor3 = Color.Red,
+		TextSize = 12,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	local bar = create("Frame", {
-		Position = UDim2.fromOffset(14, 58),
-		Size = UDim2.new(1, -28, 0, 10),
-		BackgroundColor3 = C.DarkGray,
+	local bar = new("Frame", {
+		Position = UDim2.fromOffset(12, 54),
+		Size = UDim2.new(1, -24, 0, 8),
+		BackgroundColor3 = Color.Gray,
 		BackgroundTransparency = 0.3,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
-	corner(bar, 999)
+	addCorner(bar, 999)
 
-	local fill = create("Frame", {
+	local fill = new("Frame", {
 		Size = UDim2.new(0, 0, 1, 0),
-		BackgroundColor3 = C.Accent,
-		ZIndex = 10,
+		BackgroundColor3 = Color.Red,
+		ZIndex = 22,
 		Parent = bar,
 	})
-	corner(fill, 999)
+	addCorner(fill, 999)
 
-	local knobEl = create("Frame", {
+	local kn = new("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0, 0, 0.5, 0),
-		Size = UDim2.fromOffset(16, 16),
-		BackgroundColor3 = C.White,
-		ZIndex = 11,
+		Size = UDim2.fromOffset(14, 14),
+		BackgroundColor3 = Color.White,
+		ZIndex = 23,
 		Parent = bar,
 	})
-	corner(knobEl, 999)
+	addCorner(kn, 999)
 
 	local min, max, step = item.min or 0, item.max or 1, item.step or 0.01
-	local current = item.default or min
-	local sliderDragging = false
+	local cur = item.default or min
+	local isDragging = false
 
 	local function display(v)
-		return item.formatter and item.formatter(v) or tostring(v)
+		return item.fmt and item.fmt(v) or tostring(v)
 	end
 
-	local function setVal(v)
-		v = clamp(v, min, max)
+	local function setV(v)
+		v = clampN(v, min, max)
 		v = math.round(v / step) * step
 		if step >= 1 then v = math.floor(v) end
-		current = v
+		cur = v
 		local a = (v - min) / (max - min)
 		fill.Size = UDim2.new(a, 0, 1, 0)
-		knobEl.Position = UDim2.new(a, 0, 0.5, 0)
-		valueLabel.Text = display(v)
-
-		if item.onChanged then
-			item.onChanged(v)
-		end
+		kn.Position = UDim2.new(a, 0, 0.5, 0)
+		vLabel.Text = display(v)
+		if item.onChanged then item.onChanged(v) end
 	end
 
 	bar.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			sliderDragging = true
-			local rel = clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
-			setVal(min + (max - min) * rel)
+			isDragging = true
+			local rel = clampN((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+			setV(min + (max - min) * rel)
 		end
 	end)
 
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			sliderDragging = false
-		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then isDragging = false end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
-		if sliderDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-			local rel = clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
-			setVal(min + (max - min) * rel)
+		if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+			local rel = clampN((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+			setV(min + (max - min) * rel)
 		end
 	end)
 
-	setVal(current)
+	setV(cur)
 	return card
 end
 
-local function makeGraph(parent, item)
-	local card = makeCard(parent, 180)
-	card:SetAttribute("SearchText", ((item.label or ""):lower()))
+local function mkGraph(parent, item)
+	local card = mkCard(parent, 170)
+	card:SetAttribute("SearchKey", ((item.label or ""):lower()))
+	table.insert(SearchCards, card)
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(14, 10),
-		Size = UDim2.new(1, -28, 0, 18),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.new(1, -24, 0, 16),
 		BackgroundTransparency = 1,
 		Text = item.label,
-		TextColor3 = C.White,
-		TextSize = 13,
+		TextColor3 = Color.White,
+		TextSize = 12,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
 
-	local plot = create("Frame", {
-		Position = UDim2.fromOffset(14, 38),
-		Size = UDim2.new(1, -28, 1, -50),
-		BackgroundColor3 = C.BG4,
-		BackgroundTransparency = 0.1,
+	local plot = new("Frame", {
+		Position = UDim2.fromOffset(12, 32),
+		Size = UDim2.new(1, -24, 1, -42),
+		BackgroundColor3 = Color.Elevated,
+		BackgroundTransparency = 0.08,
 		ClipsDescendants = true,
-		ZIndex = 9,
+		ZIndex = 21,
 		Parent = card,
 	})
-	corner(plot, 10)
-	addStroke(plot, C.DarkGray, 0.55, 1)
-
-	for i = 1, 4 do
-		create("Frame", {
-			Position = UDim2.new(0, 0, i/5, 0),
-			Size = UDim2.new(1, 0, 0, 1),
-			BackgroundColor3 = C.White,
-			BackgroundTransparency = 0.92,
-			BorderSizePixel = 0,
-			ZIndex = 10,
-			Parent = plot,
-		})
-	end
+	addCorner(plot, 8)
 
 	for i = 1, 24 do
-		local b = create("Frame", {
+		local b = new("Frame", {
 			AnchorPoint = Vector2.new(0, 1),
-			Position = UDim2.new(0, 6 + (i-1)*15, 1, -6),
-			Size = UDim2.new(0, 10, 0.05, 0),
-			BackgroundColor3 = C.Accent,
+			Position = UDim2.new(0, 4 + (i-1)*14, 1, -4),
+			Size = UDim2.new(0, 10, 0.04, 0),
+			BackgroundColor3 = Color.Red,
 			BorderSizePixel = 0,
-			ZIndex = 11,
+			ZIndex = 22,
 			Parent = plot,
 		})
-		corner(b, 999)
+		addCorner(b, 999)
 		table.insert(GraphBars, b)
 	end
 
 	return card
 end
 
--- ════════════════════════════════════════
--- PROGRESS
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// PROGRESS
+--// ══════════════════════════════════════
 
-function updateAutomationProgress()
+function updateProgress()
 	local total, active = 0, 0
-	for key in pairs(AutomationKeys) do
+	for key in pairs(AutoKeys) do
 		total += 1
-		if State.Toggles[key] then active += 1 end
+		if HubState.toggles[key] then active += 1 end
 	end
 	local pct = total > 0 and (active / total) or 0
-	statusText.Text = active > 0
-		and ("Automações ativas: %d/%d"):format(active, total)
-		or "Nenhuma automação ativa"
-	tw(progressFill, {Size = UDim2.new(pct, 0, 1, 0)}, 0.2)
+	StatusLabel.Text = active > 0 and ("Automações: %d/%d"):format(active, total) or "Pronto"
+	animate(ProgressFill, {Size = UDim2.new(pct, 0, 1, 0)}, 0.2)
 end
 
 local function updateGraph()
-	local maxV = 1
-	for _, v in ipairs(moneyHistory) do maxV = math.max(maxV, v) end
+	local mx = 1
+	for _, v in ipairs(moneyData) do mx = math.max(mx, v) end
 	for i, bar in ipairs(GraphBars) do
-		local val = moneyHistory[i] or 0
-		local a = clamp(val / maxV, 0.05, 1)
-		tw(bar, {Size = UDim2.new(0, 10, a, 0)}, 0.3)
+		local val = moneyData[i] or 0
+		local a = clampN(val / mx, 0.04, 1)
+		animate(bar, {Size = UDim2.new(0, 10, a, 0)}, 0.3)
 	end
 end
 
--- ════════════════════════════════════════
--- TAB DEFINITIONS
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// FUNÇÕES DE DIREÇÃO (DRIVING)
+--// ══════════════════════════════════════
 
-local TabDefs = {
+local function getVehicleSeat()
+	local char = Player.Character
+	if not char then return nil end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then return nil end
+	local seat = hum.SeatPart
+	if seat and (seat:IsA("VehicleSeat") or seat.Name == "DriveSeat") then
+		return seat
+	end
+	return nil
+end
+
+local function getVehicleModel()
+	local seat = getVehicleSeat()
+	if not seat then return nil end
+	local model = seat.Parent
+	while model and not model:IsA("Model") do
+		model = model.Parent
+	end
+	return model
+end
+
+local function applyDriftMode(enabled)
+	HubState.driftMode = enabled
+	setStat("driftStatus", enabled and "ON" or "OFF")
+
+	task.spawn(function()
+		while HubState.driftMode do
+			local seat = getVehicleSeat()
+			if seat and seat:IsA("VehicleSeat") then
+				pcall(function()
+					seat.TurnSpeed = enabled and 8 or 1
+					seat.Torque = enabled and (seat.Torque * 1.0) or seat.Torque
+				end)
+			end
+			task.wait(0.5)
+		end
+		-- Restaurar
+		local seat = getVehicleSeat()
+		if seat and seat:IsA("VehicleSeat") then
+			pcall(function() seat.TurnSpeed = 1 end)
+		end
+	end)
+end
+
+local function applySpeedLimit(limit)
+	HubState.speedLimit = limit
+	setStat("speedLimitDisplay", limit > 0 and (tostring(limit) .. " km/h") or "OFF")
+
+	task.spawn(function()
+		while HubState.speedLimit > 0 do
+			local seat = getVehicleSeat()
+			if seat and seat:IsA("VehicleSeat") then
+				pcall(function()
+					local currentSpeed = seat.Velocity.Magnitude * 3.6
+					if currentSpeed > HubState.speedLimit then
+						seat.MaxSpeed = HubState.speedLimit / 3.6
+					end
+				end)
+			end
+			task.wait(0.1)
+		end
+		-- Restaurar
+		local seat = getVehicleSeat()
+		if seat and seat:IsA("VehicleSeat") then
+			pcall(function() seat.MaxSpeed = 999 end)
+		end
+	end)
+end
+
+local function applyNitro(enabled)
+	HubState.nitroActive = enabled
+	setStat("nitroStatus", enabled and "ATIVO" or "OFF")
+
+	task.spawn(function()
+		while HubState.nitroActive do
+			local seat = getVehicleSeat()
+			if seat and seat:IsA("VehicleSeat") then
+				pcall(function()
+					local dir = seat.CFrame.LookVector
+					seat.Velocity = seat.Velocity + dir * 2
+				end)
+			end
+			task.wait(0.08)
+		end
+	end)
+end
+
+--// ══════════════════════════════════════
+--// DEFINIÇÕES DAS TABS
+--// ══════════════════════════════════════
+
+local Tabs = {
 	{
 		name = "Farming", icon = "⚡",
 		sections = {
 			{title = "Automações", items = {
-				{type="toggle", key="autoDrive", label="Auto Drive", desc="Segue uma rota automaticamente.", automation=true},
-				{type="toggle", key="autoRaces", label="Auto Complete Races", desc="Completa corridas automaticamente.", automation=true},
-				{type="toggle", key="autoDeliveries", label="Auto Delivery Jobs", desc="Conclui entregas automaticamente.", automation=true},
-				{type="toggle", key="autoFarm", label="Auto Farm Money", desc="Rotina automática de ganho.", automation=true},
-				{type="toggle", key="autoAcceptJobs", label="Auto Accept Jobs", desc="Aceita trabalhos automaticamente.", automation=true},
-				{type="toggle", key="autoClaimRewards", label="Auto Claim Rewards", desc="Resgata recompensas automaticamente.", automation=true},
+				{t="toggle", key="autoDrive", label="Auto Drive", desc="Segue rota automaticamente.", auto=true},
+				{t="toggle", key="autoRaces", label="Auto Complete Races", desc="Completa corridas.", auto=true},
+				{t="toggle", key="autoDelivery", label="Auto Delivery Jobs", desc="Conclui entregas.", auto=true},
+				{t="toggle", key="autoFarm", label="Auto Farm Money", desc="Rotina de ganho automática.", auto=true},
+				{t="toggle", key="autoAccept", label="Auto Accept Jobs", desc="Aceita trabalhos.", auto=true},
+				{t="toggle", key="autoClaim", label="Auto Claim Rewards", desc="Resgata recompensas.", auto=true},
 			}},
 			{title = "Métricas", items = {
-				{type="stat", statKey="profitPerMin", label="Dinheiro/minuto", desc="Estimativa baseada na sessão.", formatter=function(v) return formatMoney(v).."/min" end},
-				{type="stat", statKey="sessionMoney", label="Total ganho na sessão", formatter=formatMoney},
-				{type="stat", statKey="deliveries", label="Entregas concluídas", formatter=formatNum},
+				{t="stat", statKey="profitPerMin", label="Dinheiro/min", fmt=function(v) return fmtMoney(v).."/min" end},
+				{t="stat", statKey="sessionMoney", label="Total sessão", fmt=fmtMoney},
+				{t="stat", statKey="deliveries", label="Entregas concluídas", fmt=fmtNum},
 			}},
 			{title = "Controles", items = {
-				{type="button", action="stopAll", label="Parar todas automações", desc="Desativa todos os processos.", buttonText="⏹ Parar"},
+				{t="button", label="Parar tudo", desc="Desativa todas automações.", btnText="⏹ Parar", onClick=function()
+					for key in pairs(AutoKeys) do
+						if ToggleFuncs[key] then ToggleFuncs[key](false, true) end
+					end
+					updateProgress()
+					notify("Automações", "Todas desativadas.", "warning")
+				end},
+			}},
+		}
+	},
+	{
+		name = "Direção", icon = "🏎️",
+		sections = {
+			{title = "Modos de Direção", items = {
+				{t="toggle", key="driftMode", label="Modo Drift", desc="Aumenta a rotação para facilitar derrapagens.", onToggle=function(v) applyDriftMode(v) end},
+				{t="toggle", key="nitroBoost", label="Nitro Boost", desc="Aplica impulso contínuo ao veículo.", onToggle=function(v) applyNitro(v) end},
+				{t="toggle", key="autoSteer", label="Auto Steer (Correção)", desc="Corrige automaticamente a direção em retas."},
+				{t="toggle", key="stabilizer", label="Estabilizador de Veículo", desc="Reduz capotamentos e instabilidades."},
+			}},
+			{title = "Limitador de Velocidade", items = {
+				{t="slider", key="speedLimiter", label="Limite de Velocidade", desc="Define velocidade máxima (0 = sem limite).", min=0, max=300, step=10, default=0, fmt=function(v)
+					if v == 0 then return "OFF" end
+					return tostring(v) .. " km/h"
+				end, onChanged=function(v)
+					applySpeedLimit(v)
+				end},
+				{t="stat", statKey="speedLimitDisplay", label="Limite atual"},
+			}},
+			{title = "Câmera de Direção", items = {
+				{t="toggle", key="freeCam", label="Câmera Livre", desc="Desbloqueia a rotação da câmera durante direção."},
+				{t="toggle", key="rearCam", label="Câmera Traseira", desc="Alterna para visão traseira ao segurar tecla."},
+				{t="slider", key="camDist", label="Distância da Câmera", desc="Ajusta o zoom da câmera.", min=10, max=60, step=1, default=20, fmt=function(v)
+					return tostring(v) .. "m"
+				end, onChanged=function(v)
+					pcall(function() Player.CameraMaxZoomDistance = v end)
+				end},
+				{t="slider", key="fov", label="Campo de Visão (FOV)", desc="Altera o FOV da câmera.", min=50, max=120, step=1, default=70, fmt=function(v)
+					return tostring(v) .. "°"
+				end, onChanged=function(v)
+					pcall(function() workspace.CurrentCamera.FieldOfView = v end)
+				end},
+			}},
+			{title = "Status do Veículo", items = {
+				{t="stat", statKey="driftStatus", label="Drift Mode"},
+				{t="stat", statKey="nitroStatus", label="Nitro"},
+				{t="stat", statKey="vehicleSpeed", label="Velocidade Atual"},
+			}},
+			{title = "Telemetria em Tempo Real", items = {
+				{t="stat", statKey="vehiclePower", label="Potência"},
+				{t="stat", statKey="vehicleAcceleration", label="Aceleração"},
+				{t="stat", statKey="vehicleTraction", label="Tração"},
+				{t="stat", statKey="vehicleMileage", label="Quilometragem"},
 			}},
 		}
 	},
@@ -1438,16 +1427,16 @@ local TabDefs = {
 		name = "Teleports", icon = "📍",
 		sections = {
 			{title = "Locais", items = {
-				{type="button", action="tpDealership", label="Concessionária", desc="Teleporte rápido.", buttonText="Ir"},
-				{type="button", action="tpWorkshop", label="Oficina", desc="Teleporte rápido.", buttonText="Ir"},
-				{type="button", action="tpFuel", label="Postos de combustível", desc="Teleporte rápido.", buttonText="Ir"},
-				{type="button", action="tpEvents", label="Eventos", desc="Teleporte rápido.", buttonText="Ir"},
-				{type="button", action="tpRaces", label="Corridas", desc="Teleporte rápido.", buttonText="Ir"},
-				{type="button", action="tpPremium", label="Concessionárias premium", desc="Teleporte rápido.", buttonText="Ir"},
+				{t="button", label="Concessionária", desc="TP rápido.", btnText="Ir", onClick=function() notify("Teleport", "Conecte ao sistema de TP do jogo.", "info") end},
+				{t="button", label="Oficina", desc="TP rápido.", btnText="Ir"},
+				{t="button", label="Postos de Combustível", desc="TP rápido.", btnText="Ir"},
+				{t="button", label="Eventos", desc="TP rápido.", btnText="Ir"},
+				{t="button", label="Corridas", desc="TP rápido.", btnText="Ir"},
+				{t="button", label="Premium Dealers", desc="TP rápido.", btnText="Ir"},
 			}},
 			{title = "Navegação", items = {
-				{type="button", action="openCities", label="Lista de cidades", desc="Abre lista de cidades.", buttonText="Abrir"},
-				{type="textblock", statKey="serverInfo", label="Favoritos", desc="Destinos favoritos."},
+				{t="button", label="Lista de Cidades", desc="Abre todas cidades.", btnText="Abrir"},
+				{t="textblock", statKey="serverInfo", label="Favoritos"},
 			}},
 		}
 	},
@@ -1455,20 +1444,20 @@ local TabDefs = {
 		name = "Veículos", icon = "🚗",
 		sections = {
 			{title = "Gerenciamento", items = {
-				{type="button", action="spawn", label="Spawnar veículo", desc="Gera o veículo escolhido.", buttonText="Spawnar"},
-				{type="button", action="store", label="Guardar veículo", desc="Guarda o veículo atual.", buttonText="Guardar"},
-				{type="button", action="repair", label="Reparar veículo", desc="Repara o veículo.", buttonText="Reparar"},
-				{type="toggle", key="autoRefuel", label="Reabastecer automaticamente", desc="Mantém combustível cheio."},
+				{t="button", label="Spawnar Veículo", desc="Gera o veículo.", btnText="Spawnar"},
+				{t="button", label="Guardar Veículo", desc="Guarda veículo.", btnText="Guardar"},
+				{t="button", label="Reparar Veículo", desc="Repara veículo.", btnText="Reparar"},
+				{t="toggle", key="autoRefuel", label="Reabastecer Auto", desc="Mantém combustível."},
 			}},
 			{title = "Telemetria", items = {
-				{type="stat", statKey="vehicleSpeed", label="Velocidade"},
-				{type="stat", statKey="vehicleMileage", label="Quilometragem"},
-				{type="stat", statKey="vehiclePower", label="Potência"},
-				{type="stat", statKey="vehicleAcceleration", label="Aceleração"},
-				{type="stat", statKey="vehicleTraction", label="Tração"},
+				{t="stat", statKey="vehicleSpeed", label="Velocidade"},
+				{t="stat", statKey="vehicleMileage", label="Quilometragem"},
+				{t="stat", statKey="vehiclePower", label="Potência"},
+				{t="stat", statKey="vehicleAcceleration", label="Aceleração"},
+				{t="stat", statKey="vehicleTraction", label="Tração"},
 			}},
 			{title = "Info", items = {
-				{type="textblock", statKey="carInfo", label="Informações do carro"},
+				{t="textblock", statKey="carInfo", label="Informações do carro"},
 			}},
 		}
 	},
@@ -1476,48 +1465,47 @@ local TabDefs = {
 		name = "Corridas", icon = "🏁",
 		sections = {
 			{title = "Automação", items = {
-				{type="toggle", key="autoJoinRaces", label="Entrar em corridas", desc="Entra automaticamente."},
-				{type="toggle", key="autoReady", label="Auto Ready", desc="Marca pronto automaticamente."},
+				{t="toggle", key="autoJoinRace", label="Auto Join Corridas", desc="Entra automaticamente."},
+				{t="toggle", key="autoReady", label="Auto Ready", desc="Marca pronto."},
 			}},
-			{title = "Tempo e Posição", items = {
-				{type="stat", statKey="raceTime", label="Tempo da corrida"},
-				{type="stat", statKey="racePosition", label="Posição atual"},
-				{type="stat", statKey="bestRaceTime", label="Melhor tempo"},
+			{title = "Tempo", items = {
+				{t="stat", statKey="raceTime", label="Tempo da Corrida"},
+				{t="stat", statKey="racePosition", label="Posição"},
+				{t="stat", statKey="bestRaceTime", label="Melhor Tempo"},
 			}},
-			{title = "Histórico", items = {
-				{type="textblock", statKey="raceHistory", label="Últimas corridas"},
-				{type="stat", statKey="raceWins", label="Vitórias", formatter=formatNum},
-				{type="stat", statKey="raceLosses", label="Derrotas", formatter=formatNum},
+			{title = "Resultados", items = {
+				{t="textblock", statKey="raceHistory", label="Histórico"},
+				{t="stat", statKey="raceWins", label="Vitórias", fmt=fmtNum},
+				{t="stat", statKey="raceLosses", label="Derrotas", fmt=fmtNum},
 			}},
 		}
 	},
 	{
 		name = "Economia", icon = "💰",
 		sections = {
-			{title = "Resumo Financeiro", items = {
-				{type="stat", statKey="moneyCurrent", label="Dinheiro atual", formatter=formatMoney},
-				{type="stat", statKey="sessionMoney", label="Ganho na sessão", formatter=formatMoney},
-				{type="stat", statKey="profitPerMin", label="Lucro/minuto", formatter=function(v) return formatMoney(v).."/min" end},
-				{type="stat", statKey="deliveries", label="Total entregas", formatter=formatNum},
-				{type="stat", statKey="raceWins", label="Corridas vencidas", formatter=formatNum},
-				{type="stat", statKey="kmDriven", label="Km dirigidos", formatter=function(v) return formatNum(v).." km" end},
-				{type="stat", statKey="sessionTime", label="Tempo sessão"},
+			{title = "Financeiro", items = {
+				{t="stat", statKey="moneyCurrent", label="Dinheiro atual", fmt=fmtMoney},
+				{t="stat", statKey="sessionMoney", label="Ganho sessão", fmt=fmtMoney},
+				{t="stat", statKey="profitPerMin", label="Lucro/min", fmt=function(v) return fmtMoney(v).."/min" end},
+				{t="stat", statKey="deliveries", label="Entregas", fmt=fmtNum},
+				{t="stat", statKey="raceWins", label="Corridas vencidas", fmt=fmtNum},
+				{t="stat", statKey="kmDriven", label="Km dirigidos", fmt=function(v) return fmtNum(v).." km" end},
+				{t="stat", statKey="sessionTime", label="Tempo sessão"},
 			}},
-			{title = "Análise", items = {
-				{type="graph", label="Evolução financeira"},
+			{title = "Gráfico", items = {
+				{t="graph", label="Evolução Financeira"},
 			}},
 		}
 	},
 	{
 		name = "Visual", icon = "🎨",
 		sections = {
-			{title = "Personalização", items = {
-				{type="slider", key="guiScale", label="Escala da GUI", desc="Ajusta o tamanho da interface.", min=0.75, max=1.3, step=0.01, default=1, formatter=function(v) return string.format("%.2fx", v) end, onChanged=function(v) end},
-				{type="toggle", key="animations", label="Animações", desc="Liga/desliga animações.", default=true},
+			{title = "Interface", items = {
+				{t="toggle", key="animations", label="Animações", desc="Liga/desliga animações.", default=true},
 			}},
 			{title = "Configurações", items = {
-				{type="button", action="restoreDefaults", label="Restaurar padrões", desc="Reseta tudo.", buttonText="Restaurar"},
-				{type="button", action="saveSettings", label="Salvar configs", desc="Salvar preferências.", buttonText="Salvar"},
+				{t="button", label="Restaurar Padrões", desc="Reseta tudo.", btnText="Restaurar"},
+				{t="button", label="Salvar Configs", desc="Salvar.", btnText="Salvar"},
 			}},
 		}
 	},
@@ -1525,207 +1513,205 @@ local TabDefs = {
 		name = "Utilidades", icon = "🔧",
 		sections = {
 			{title = "Sessão", items = {
-				{type="toggle", key="antiAfk", label="Anti AFK", desc="Impede kick por inatividade."},
-				{type="toggle", key="autoRejoin", label="Rejoin automático", desc="Reconecta automaticamente."},
-				{type="button", action="copyJobId", label="Copiar Job ID", desc="Copia o ID da sessão.", buttonText="Copiar"},
+				{t="toggle", key="antiAfk", label="Anti AFK", desc="Impede kick por inatividade.", onToggle=function(v)
+					if v then
+						task.spawn(function()
+							while HubState.toggles["antiAfk"] do
+								pcall(function()
+									local vu = game:GetService("VirtualUser")
+									vu:CaptureController()
+									vu:ClickButton2(Vector2.new())
+								end)
+								task.wait(55)
+							end
+						end)
+					end
+				end},
+				{t="toggle", key="autoRejoin", label="Rejoin Automático", desc="Reconecta se desconectar."},
+				{t="button", label="Copiar Job ID", desc="Copia o ID.", btnText="Copiar", onClick=function()
+					pcall(function() if setclipboard then setclipboard(game.JobId) end end)
+					notify("Job ID", game.JobId, "info")
+				end},
 			}},
 			{title = "Servidor", items = {
-				{type="textblock", statKey="serverInfo", label="Informações do servidor"},
-				{type="stat", statKey="playersOnline", label="Jogadores online", formatter=formatNum},
-				{type="stat", statKey="ping", label="Ping"},
-				{type="stat", statKey="fps", label="FPS", formatter=function(v) return tostring(v) end},
-				{type="stat", statKey="serverTime", label="Horário"},
+				{t="textblock", statKey="serverInfo", label="Info do Servidor"},
+				{t="stat", statKey="playersOnline", label="Jogadores", fmt=fmtNum},
+				{t="stat", statKey="ping", label="Ping"},
+				{t="stat", statKey="fps", label="FPS", fmt=function(v) return tostring(v) end},
+				{t="stat", statKey="serverTime", label="Horário"},
 			}},
 		}
 	},
 }
 
 -- Registrar automation keys
-for _, tab in ipairs(TabDefs) do
+for _, tab in ipairs(Tabs) do
 	for _, sec in ipairs(tab.sections) do
 		for _, item in ipairs(sec.items) do
-			if item.automation and item.key then
-				AutomationKeys[item.key] = true
-			end
+			if item.auto and item.key then AutoKeys[item.key] = true end
 		end
 	end
 end
 
--- ════════════════════════════════════════
--- RENDER TABS
--- ════════════════════════════════════════
-
-local currentTab = nil
+--// ══════════════════════════════════════
+--// CONSTRUIR TABS
+--// ══════════════════════════════════════
 
 local function selectTab(name)
-	currentTab = name
-	for tabName, info in pairs(PageMap) do
+	HubState.currentTab = name
+	PageTitleLabel.Text = name
+
+	for tabName, info in pairs(TabPages) do
 		local active = (tabName == name)
 		info.page.Visible = active
+
 		if active then
-			info.page.Position = UDim2.new(0.02, 0, 0, 0)
-			tw(info.page, {Position = UDim2.new(0, 0, 0, 0)}, 0.18)
-			tw(info.btn, {BackgroundColor3 = C.Accent, BackgroundTransparency = 0.06}, 0.18)
+			info.page.CanvasPosition = Vector2.new(0, 0)
+			animate(info.btn, {BackgroundColor3 = Color.Red, BackgroundTransparency = 0.05}, 0.15)
 			info.indicator.Visible = true
-			tw(info.indicator, {Size = UDim2.new(0, 4, 0.65, 0)}, 0.18)
-			info.titleLbl.TextColor3 = C.White
+			info.lbl.TextColor3 = Color.White
 		else
-			tw(info.btn, {BackgroundColor3 = C.BG4, BackgroundTransparency = 0.06}, 0.18)
+			animate(info.btn, {BackgroundColor3 = Color.Elevated, BackgroundTransparency = 0.05}, 0.15)
 			info.indicator.Visible = false
-			info.titleLbl.TextColor3 = C.TextSub
+			info.lbl.TextColor3 = Color.SubText
 		end
 	end
-	pageTitle.Text = name
-	searchBox.Text = ""
+
+	SearchInput.Text = ""
 end
 
 -- Pesquisa
-searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-	local query = (searchBox.Text or ""):lower()
-	local info = PageMap[currentTab]
+SearchInput:GetPropertyChangedSignal("Text"):Connect(function()
+	local query = (SearchInput.Text or ""):lower()
+	local info = TabPages[HubState.currentTab]
 	if not info then return end
 
-	for _, secInfo in ipairs(info.sections) do
-		local anyVisible = false
-		for _, itemInfo in ipairs(secInfo.items) do
-			local hay = itemInfo.card:GetAttribute("SearchText") or ""
-			local vis = query == "" or string.find(hay, query, 1, true) ~= nil
-			itemInfo.card.Visible = vis
-			if vis then anyVisible = true end
+	for _, secInfo in ipairs(info.secs) do
+		local anyVis = false
+		for _, cardInfo in ipairs(secInfo.cards) do
+			local hay = cardInfo:GetAttribute("SearchKey") or ""
+			local vis = query == "" or hay:find(query, 1, true) ~= nil
+			cardInfo.Visible = vis
+			if vis then anyVis = true end
 		end
-		secInfo.frame.Visible = anyVisible
+		secInfo.frame.Visible = anyVis
 	end
 end)
 
--- Construir tabs
-for _, tab in ipairs(TabDefs) do
+for _, tab in ipairs(Tabs) do
 	-- Sidebar button
-	local tabBtn = create("TextButton", {
-		Size = UDim2.new(1, 0, 0, 48),
-		BackgroundColor3 = C.BG4,
-		BackgroundTransparency = 0.06,
+	local tBtn = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, 44),
+		BackgroundColor3 = Color.Elevated,
+		BackgroundTransparency = 0.05,
 		Text = "",
 		AutoButtonColor = false,
-		ZIndex = 8,
-		Parent = tabScroll,
+		ZIndex = 18,
+		Parent = TabList,
 	})
-	corner(tabBtn, 12)
-	addStroke(tabBtn, C.DarkGray, 0.5, 1)
-	addHover(tabBtn)
+	addCorner(tBtn, 10)
+	addStroke(tBtn, Color.Gray, 0.5, 1)
+	addHover(tBtn)
 
-	local indicator = create("Frame", {
+	local indicator = new("Frame", {
 		Visible = false,
-		Position = UDim2.fromOffset(0, 7),
-		Size = UDim2.new(0, 4, 0.65, 0),
-		BackgroundColor3 = C.Accent,
-		ZIndex = 9,
-		Parent = tabBtn,
+		Position = UDim2.fromOffset(0, 6),
+		Size = UDim2.new(0, 3, 0.65, 0),
+		BackgroundColor3 = Color.Red,
+		ZIndex = 19,
+		Parent = tBtn,
 	})
-	corner(indicator, 999)
+	addCorner(indicator, 999)
 
-	create("TextLabel", {
-		Position = UDim2.fromOffset(12, 0),
-		Size = UDim2.fromOffset(26, 48),
+	new("TextLabel", {
+		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.fromOffset(22, 44),
 		BackgroundTransparency = 1,
 		Text = tab.icon,
-		TextSize = 16,
-		Font = Enum.Font.GothamBold,
-		ZIndex = 9,
-		Parent = tabBtn,
+		TextSize = 14,
+		ZIndex = 19,
+		Parent = tBtn,
 	})
 
-	local tLbl = create("TextLabel", {
-		Position = UDim2.fromOffset(42, 0),
-		Size = UDim2.new(1, -50, 1, 0),
+	local tLbl = new("TextLabel", {
+		Position = UDim2.fromOffset(36, 0),
+		Size = UDim2.new(1, -42, 1, 0),
 		BackgroundTransparency = 1,
 		Text = tab.name,
-		TextColor3 = C.TextSub,
-		TextSize = 14,
+		TextColor3 = Color.SubText,
+		TextSize = 13,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 9,
-		Parent = tabBtn,
+		ZIndex = 19,
+		Parent = tBtn,
 	})
 
 	-- Page
-	local page = create("ScrollingFrame", {
-		Name = tab.name,
+	local page = new("ScrollingFrame", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		ScrollBarThickness = 5,
-		ScrollBarImageColor3 = C.Accent,
+		ScrollBarThickness = 4,
+		ScrollBarImageColor3 = Color.Red,
 		Visible = false,
-		ZIndex = 8,
-		Parent = pagesHolder,
+		ZIndex = 20,
+		Parent = PageContainer,
 	})
-	create("UIListLayout", {Padding = UDim.new(0, 9), Parent = page})
-	pad(page, 2)
+	new("UIListLayout", {Padding = UDim.new(0, 8), Parent = page})
 
-	local pageSections = {}
+	local pageSecs = {}
 
 	for _, secDef in ipairs(tab.sections) do
-		local sec = makeSection(page, secDef.title)
-		local secItems = {}
+		local secFrame, secBody = mkSection(page, secDef.title)
+		local secCards = {}
 
 		for _, item in ipairs(secDef.items) do
 			local card
-			if item.type == "toggle" then
-				card = makeToggle(sec.body, item)
-			elseif item.type == "button" then
-				card = makeButton(sec.body, item)
-			elseif item.type == "stat" then
-				card = makeStatCard(sec.body, item)
-			elseif item.type == "textblock" then
-				card = makeTextBlock(sec.body, item)
-			elseif item.type == "slider" then
-				card = makeSlider(sec.body, item)
-			elseif item.type == "graph" then
-				card = makeGraph(sec.body, item)
+			if item.t == "toggle" then card = mkToggle(secBody, item)
+			elseif item.t == "button" then card = mkButton(secBody, item)
+			elseif item.t == "stat" then card = mkStat(secBody, item)
+			elseif item.t == "textblock" then card = mkTextBlock(secBody, item)
+			elseif item.t == "slider" then card = mkSlider(secBody, item)
+			elseif item.t == "graph" then card = mkGraph(secBody, item)
 			end
-			if card then
-				table.insert(secItems, {card = card})
-			end
+			if card then table.insert(secCards, card) end
 		end
 
-		table.insert(pageSections, {frame = sec.frame, items = secItems})
+		table.insert(pageSecs, {frame = secFrame, cards = secCards})
 	end
 
-	PageMap[tab.name] = {
-		btn = tabBtn,
+	TabPages[tab.name] = {
+		btn = tBtn,
 		indicator = indicator,
-		titleLbl = tLbl,
+		lbl = tLbl,
 		page = page,
-		sections = pageSections,
+		secs = pageSecs,
 	}
 
-	tabBtn.MouseButton1Click:Connect(function()
+	tBtn.MouseButton1Click:Connect(function()
 		selectTab(tab.name)
 	end)
 end
 
 selectTab("Farming")
-updateAutomationProgress()
+updateProgress()
 
--- ════════════════════════════════════════
--- DRAG (ARRASTAR JANELA)
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// DRAG
+--// ══════════════════════════════════════
 
 do
-	local dragging = false
-	local dragStart, startPos
+	local dragging, dragStart, startPos = false, nil, nil
 
-	headerFrame.InputBegan:Connect(function(input)
+	Header.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			dragging = true
 			dragStart = input.Position
-			startPos = windowRoot.Position
+			startPos = Window.Position
 			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then
-					dragging = false
-				end
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
 			end)
 		end
 	end)
@@ -1733,242 +1719,214 @@ do
 	UserInputService.InputChanged:Connect(function(input)
 		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
 			local delta = input.Position - dragStart
-			windowRoot.Position = UDim2.new(
-				startPos.X.Scale, startPos.X.Offset + delta.X,
-				startPos.Y.Scale, startPos.Y.Offset + delta.Y
-			)
+			Window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 		end
 	end)
 end
 
--- ════════════════════════════════════════
--- RESIZE
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// RESIZE
+--// ══════════════════════════════════════
 
 do
-	local resizing = false
-	local resizeStart, sizeStart
+	local resizing, resStart, szStart = false, nil, nil
 
-	resizeHandle.MouseButton1Down:Connect(function()
+	ResizeBtn.MouseButton1Down:Connect(function()
 		resizing = true
-		resizeStart = UserInputService:GetMouseLocation()
-		sizeStart = windowRoot.AbsoluteSize
+		resStart = UserInputService:GetMouseLocation()
+		szStart = Window.AbsoluteSize
 	end)
 
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			resizing = false
-		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then resizing = false end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
-		if resizing and input.UserInputType == Enum.UserInputType.MouseMovement and not State.Minimized then
-			local delta = UserInputService:GetMouseLocation() - resizeStart
-			local newW = clamp(sizeStart.X + delta.X, 820, 1500)
-			local newH = clamp(sizeStart.Y + delta.Y, 520, 900)
-			windowRoot.Size = UDim2.fromOffset(newW, newH)
+		if resizing and input.UserInputType == Enum.UserInputType.MouseMovement and not HubState.isMinimized then
+			local delta = UserInputService:GetMouseLocation() - resStart
+			Window.Size = UDim2.fromOffset(clampN(szStart.X + delta.X, 820, 1400), clampN(szStart.Y + delta.Y, 500, 850))
 		end
 	end)
 end
 
--- ════════════════════════════════════════
--- ABRIR / FECHAR / MINIMIZAR (CORRIGIDO)
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// ABRIR / FECHAR / MINIMIZAR
+--// ══════════════════════════════════════
 
-local expandedSize = windowRoot.Size
+local function openHub()
+	if HubState.isOpen then return end
+	HubState.isOpen = true
+	HubState.isMinimized = false
 
-local function openGUI()
-	if State.Open then return end
-	State.Open = true
-	State.Minimized = false
+	Window.Visible = true
+	Body.Visible = true
+	ResizeBtn.Visible = true
+	WinScale.Scale = 0.9
+	Main.BackgroundTransparency = 0.5
+	floatBtn.Visible = false
 
-	windowRoot.Visible = true
-	bodyFrame.Visible = true
-	resizeHandle.Visible = true
-	openScale.Scale = 0.92
-	mainFrame.BackgroundTransparency = 0.5
-
-	tw(blur, {Size = 18}, 0.3)
-	tw(openScale, {Scale = 1}, 0.28)
-	tw(mainFrame, {BackgroundTransparency = 0.04}, 0.28)
+	animate(BlurEffect, {Size = 16}, 0.25)
+	animate(WinScale, {Scale = 1}, 0.25)
+	animate(Main, {BackgroundTransparency = 0.02}, 0.25)
 end
 
-local function closeGUI()
-	if not State.Open then return end
+local function closeHub()
+	if not HubState.isOpen then return end
 
-	tw(openScale, {Scale = 0.92}, 0.2)
-	tw(mainFrame, {BackgroundTransparency = 0.6}, 0.2)
-	tw(blur, {Size = 0}, 0.2)
+	animate(WinScale, {Scale = 0.9}, 0.18)
+	animate(Main, {BackgroundTransparency = 0.6}, 0.18)
+	animate(BlurEffect, {Size = 0}, 0.18)
 
-	task.delay(0.22, function()
-		windowRoot.Visible = false
-		State.Open = false
-		State.Minimized = false
+	task.delay(0.2, function()
+		Window.Visible = false
+		HubState.isOpen = false
+		HubState.isMinimized = false
+		floatBtn.Visible = true
 	end)
 end
 
-local function toggleGUI()
-	if State.Open then
-		closeGUI()
-	else
-		openGUI()
-	end
+local function toggleHub()
+	if HubState.isOpen then closeHub() else openHub() end
 end
 
 -- Minimizar
-minimizeBtn.MouseButton1Click:Connect(function()
-	if not State.Open then return end
+MinBtn.MouseButton1Click:Connect(function()
+	if not HubState.isOpen then return end
+	HubState.isMinimized = not HubState.isMinimized
 
-	State.Minimized = not State.Minimized
-
-	if State.Minimized then
-		expandedSize = windowRoot.Size
-		tw(windowRoot, {Size = UDim2.fromOffset(windowRoot.AbsoluteSize.X, 72)}, 0.2)
-		task.delay(0.18, function()
-			if State.Minimized then
-				bodyFrame.Visible = false
-				resizeHandle.Visible = false
+	if HubState.isMinimized then
+		HubState.savedSize = Window.Size
+		animate(Window, {Size = UDim2.fromOffset(Window.AbsoluteSize.X, 68)}, 0.18)
+		task.delay(0.16, function()
+			if HubState.isMinimized then
+				Body.Visible = false
+				ResizeBtn.Visible = false
 			end
 		end)
 	else
-		bodyFrame.Visible = true
-		resizeHandle.Visible = true
-		tw(windowRoot, {Size = expandedSize}, 0.2)
+		Body.Visible = true
+		ResizeBtn.Visible = true
+		if HubState.savedSize then
+			animate(Window, {Size = HubState.savedSize}, 0.18)
+		end
 	end
 end)
 
 -- Fechar
-closeBtn.MouseButton1Click:Connect(function()
-	closeGUI()
+CloseBtn.MouseButton1Click:Connect(function()
+	closeHub()
 end)
 
--- Tecla RightShift para abrir/fechar
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
+-- Botão flutuante
+floatBtn.MouseButton1Click:Connect(function()
+	openHub()
+end)
+
+-- Tecla RightShift
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
 	if input.KeyCode == Enum.KeyCode.RightShift then
-		toggleGUI()
+		toggleHub()
 	end
 end)
 
--- ════════════════════════════════════════
--- LOOPS DE ATUALIZAÇÃO
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// LOOPS DE ATUALIZAÇÃO
+--// ══════════════════════════════════════
 
 -- FPS
 do
-	local frames = 0
-	local lastTick = tick()
+	local frameCount = 0
+	local lastCheck = tick()
 
 	RunService.RenderStepped:Connect(function()
-		frames += 1
+		frameCount += 1
 		local now = tick()
-		if now - lastTick >= 1 then
-			local fps = frames
-			frames = 0
-			lastTick = now
+		if now - lastCheck >= 1 then
+			local fps = frameCount
+			frameCount = 0
+			lastCheck = now
 			setStat("fps", fps)
-			fpsLabel.Text = "FPS: " .. tostring(fps)
+			FpsPill.Text = "FPS: " .. tostring(fps)
 		end
 	end)
 end
 
--- Sessão, Ping, Players, etc.
-task.spawn(function()
-	while gui and gui.Parent do
-		local elapsed = os.clock() - sessionStart
-		local dur = formatTime(elapsed)
-		setStat("sessionTime", dur)
-		sessionLabel.Text = dur
+-- Velocidade em tempo real
+RunService.Heartbeat:Connect(function()
+	local seat = getVehicleSeat()
+	if seat then
+		local speed = math.floor(seat.Velocity.Magnitude * 3.6)
+		setStat("vehicleSpeed", tostring(speed) .. " km/h")
+	else
+		setStat("vehicleSpeed", "0 km/h")
+	end
+end)
 
-		local perMin = math.floor((State.Stats.sessionMoney or 0) / math.max(elapsed / 60, 1))
-		setStat("profitPerMin", perMin)
+-- Sessão, ping, players
+task.spawn(function()
+	while ScreenGui and ScreenGui.Parent do
+		local elapsed = os.clock() - sessionStart
+		local dur = fmtTime(elapsed)
+		setStat("sessionTime", dur)
+		SessionPill.Text = dur
+
+		local pm = math.floor((Stats.sessionMoney or 0) / math.max(elapsed / 60, 1))
+		setStat("profitPerMin", pm)
 
 		setStat("playersOnline", #Players:GetPlayers())
 		setStat("serverTime", os.date("%H:%M:%S"))
 
-		-- Ping (tentativa)
 		local pingStr = "-- ms"
 		pcall(function()
-			local stats = game:GetService("Stats")
-			pingStr = tostring(math.floor(stats:GetValue("ReceiveDataCyclePing") or 0)) .. " ms"
+			pingStr = tostring(math.floor(Player:GetNetworkPing() * 1000)) .. " ms"
 		end)
 		setStat("ping", pingStr)
 
-		-- Server info
 		setStat("serverInfo", string.format(
 			"PlaceId: %s\nJobId: %s\nJogadores: %d\nUptime: %s",
-			tostring(game.PlaceId),
-			tostring(game.JobId),
-			#Players:GetPlayers(),
-			dur
+			tostring(game.PlaceId), tostring(game.JobId),
+			#Players:GetPlayers(), dur
 		))
+
+		-- Informações do veículo
+		local model = getVehicleModel()
+		if model then
+			local seat = getVehicleSeat()
+			local info = "Veículo: " .. model.Name
+			if seat and seat:IsA("VehicleSeat") then
+				info = info .. "\nMaxSpeed: " .. tostring(math.floor(seat.MaxSpeed))
+				info = info .. "\nTorque: " .. tostring(math.floor(seat.Torque))
+				info = info .. "\nTurnSpeed: " .. tostring(seat.TurnSpeed)
+			end
+			setStat("carInfo", info)
+			pcall(function()
+				setStat("vehiclePower", tostring(math.floor(seat.Torque)) .. " T")
+			end)
+		end
 
 		task.wait(1)
 	end
 end)
 
--- Anti AFK (funcional)
-task.spawn(function()
-	while gui and gui.Parent do
-		if State.Toggles["antiAfk"] then
-			local vu = game:GetService("VirtualUser")
-			pcall(function()
-				vu:CaptureController()
-				vu:ClickButton2(Vector2.new())
-			end)
-		end
-		task.wait(60)
-	end
-end)
-
 -- Gráfico
 task.spawn(function()
-	while gui and gui.Parent do
-		table.insert(moneyHistory, State.Stats.sessionMoney or 0)
-		if #moneyHistory > 24 then
-			table.remove(moneyHistory, 1)
-		end
+	while ScreenGui and ScreenGui.Parent do
+		table.insert(moneyData, Stats.sessionMoney or 0)
+		if #moneyData > 24 then table.remove(moneyData, 1) end
 		updateGraph()
 		task.wait(5)
 	end
 end)
 
--- ════════════════════════════════════════
--- LOADING SEQUENCE (CORRIGIDA)
--- ════════════════════════════════════════
+--// ══════════════════════════════════════
+--// INICIALIZAÇÃO
+--// ══════════════════════════════════════
 
-task.spawn(function()
-	-- Loading animation
-	tw(loadFill, {Size = UDim2.new(0.3, 0, 1, 0)}, 0.4)
-	task.wait(0.4)
-	tw(loadFill, {Size = UDim2.new(0.6, 0, 1, 0)}, 0.35)
-	task.wait(0.35)
-	tw(loadFill, {Size = UDim2.new(0.85, 0, 1, 0)}, 0.3)
+-- Abrir automaticamente
+task.delay(0.5, function()
+	openHub()
 	task.wait(0.3)
-	tw(loadFill, {Size = UDim2.new(1, 0, 1, 0)}, 0.2)
-	task.wait(0.35)
-
-	-- Fade out loading
-	tw(loadScreen, {BackgroundTransparency = 1}, 0.3)
-	tw(loadCard, {BackgroundTransparency = 1}, 0.3)
-
-	for _, child in ipairs(loadCard:GetDescendants()) do
-		pcall(function()
-			if child:IsA("TextLabel") or child:IsA("Frame") then
-				tw(child, {BackgroundTransparency = 1}, 0.25)
-			end
-			if child:IsA("TextLabel") then
-				tw(child, {TextTransparency = 1}, 0.25)
-			end
-		end)
-	end
-
-	task.wait(0.35)
-	loadScreen:Destroy()
-
-	-- Abrir GUI
-	openGUI()
-
-	task.wait(0.3)
-	notify("Redarelhos Hub v2.0", "Interface carregada! Use RightShift para abrir/fechar.", "success")
+	notify("Redarelhos Hub v3.0", "Interface carregada! RightShift para abrir/fechar.", "success")
+	notify("Nova tab: Direção", "Drift, limitador de velocidade, nitro, câmera e mais!", "info")
 end)
